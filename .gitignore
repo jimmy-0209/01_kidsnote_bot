@@ -1,0 +1,14 @@
+# 가상환경 / 캐시
+venv/
+__pycache__/
+*.pyc
+
+# 보안 및 인증 파일
+.env
+credentials*.json
+token*.json
+gemini API.txt
+
+# 런타임 생성 이미지 (알림/공지 캡처본)
+notice_img_*.png
+notice_web_img_*.jpg
