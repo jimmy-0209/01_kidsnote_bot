@@ -21,6 +21,16 @@
   .schedule-box input[type="text"] { width: 100%; padding: 6px; font-size: 0.9rem; box-sizing: border-box; }
   .schedule-meta { color: #666; font-size: 0.85rem; margin-top: 8px; }
   .hint { color: #888; font-size: 0.8rem; }
+  .job-form { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+  .job-form .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .job-form input[type="text"], .job-form input[type="password"] { flex: 1; min-width: 140px; padding: 6px; font-size: 0.9rem; box-sizing: border-box; }
+  .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .chip { background: #eee; border-radius: 12px; padding: 4px 10px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
+  .chip button { padding: 0 4px; font-size: 0.8rem; background: none; border: none; cursor: pointer; color: #888; }
+  table.jobs-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9rem; }
+  table.jobs-table th, table.jobs-table td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+  table.jobs-table .badge { font-size: 0.75rem; padding: 2px 8px; }
+  .badge.queued { background: #0d6efd; }
 </style>
 </head>
 <body>
@@ -42,11 +52,40 @@
     <div class="hint" style="margin-top:10px;">⚠️ 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 매일 21:00에 이미 자동 실행 중입니다. 이 웹 스케줄러를 켤 경우, 중복 실행을 피하려면 작업 스케줄러 쪽을 꺼두세요.</div>
   </div>
 
+  <h3>다중 사용자 작업 등록 (프로토타입)</h3>
+  <div class="hint" style="margin-bottom:10px;">⚠️ 비밀번호는 암호화 없이 로컬 파일(users_config.json)에 평문 저장되는 프로토타입입니다. 공유 PC/외부 접속 환경에서는 사용하지 마세요.</div>
+  <div class="job-form">
+    <div class="row">
+      <input type="text" id="jobKidsnoteId" placeholder="키즈노트 ID">
+      <input type="password" id="jobKidsnotePw" placeholder="키즈노트 비밀번호">
+    </div>
+    <div class="row">
+      <input type="text" id="jobTargetSchool" placeholder="학교/기관명 (예: 한별유치원)">
+      <input type="text" id="jobTargetClass" placeholder="반 이름 (예: 기쁨2반)">
+    </div>
+    <div class="row">
+      <input type="text" id="jobTimeInput" placeholder="HH:MM" style="max-width:120px;">
+      <button type="button" onclick="addTimeChip()">시각 추가</button>
+    </div>
+    <div class="chip-row" id="jobTimeChips"></div>
+    <button onclick="createJob()">작업 등록</button>
+  </div>
+
+  <h3>등록된 작업 목록</h3>
+  <table class="jobs-table">
+    <thead>
+      <tr><th>학교/반</th><th>키즈노트 ID</th><th>스케줄</th><th>다음 실행</th><th>상태</th><th></th></tr>
+    </thead>
+    <tbody id="jobsTableBody">
+      <tr><td colspan="6">불러오는 중...</td></tr>
+    </tbody>
+  </table>
+
   <h3>실행 로그 (run_log.txt 최근 200줄)</h3>
   <pre id="logs">불러오는 중...</pre>
 
 <script>
-const badgeLabel = { idle: "대기중", running: "실행중", success: "완료", error: "오류" };
+const badgeLabel = { idle: "대기중", queued: "대기열", running: "실행중", success: "완료", error: "오류" };
 
 async function refreshStatus() {
   const res = await fetch("/api/status");
@@ -113,11 +152,117 @@ async function saveSchedule() {
   refreshSchedule();
 }
 
+let pendingTimes = [];
+
+function renderTimeChips() {
+  const container = document.getElementById("jobTimeChips");
+  container.innerHTML = "";
+  pendingTimes.forEach((t, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip";
+    chip.innerHTML = `${t} <button type="button" onclick="removeTimeChip(${i})">×</button>`;
+    container.appendChild(chip);
+  });
+}
+
+function addTimeChip() {
+  const input = document.getElementById("jobTimeInput");
+  const t = input.value.trim();
+  if (!/^\d{1,2}:\d{2}$/.test(t)) {
+    alert("HH:MM 형식으로 입력하세요 (예: 09:00)");
+    return;
+  }
+  pendingTimes.push(t);
+  input.value = "";
+  renderTimeChips();
+}
+
+function removeTimeChip(i) {
+  pendingTimes.splice(i, 1);
+  renderTimeChips();
+}
+
+async function createJob() {
+  const payload = {
+    kidsnote_id: document.getElementById("jobKidsnoteId").value.trim(),
+    kidsnote_pw: document.getElementById("jobKidsnotePw").value,
+    target_school: document.getElementById("jobTargetSchool").value.trim(),
+    target_class: document.getElementById("jobTargetClass").value.trim(),
+    times: pendingTimes,
+  };
+
+  const res = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || "등록에 실패했습니다.");
+    return;
+  }
+
+  document.getElementById("jobKidsnoteId").value = "";
+  document.getElementById("jobKidsnotePw").value = "";
+  document.getElementById("jobTargetSchool").value = "";
+  document.getElementById("jobTargetClass").value = "";
+  pendingTimes = [];
+  renderTimeChips();
+  refreshJobs();
+}
+
+async function runJobNow(jobId) {
+  const res = await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+  if (res.status === 409) {
+    const data = await res.json();
+    alert(data.error);
+  }
+  refreshJobs();
+}
+
+async function deleteJob(jobId) {
+  if (!confirm("이 작업을 삭제할까요?")) return;
+  await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
+  refreshJobs();
+}
+
+async function refreshJobs() {
+  const res = await fetch("/api/jobs");
+  const jobs = await res.json();
+  const tbody = document.getElementById("jobsTableBody");
+
+  if (!jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="6">등록된 작업이 없습니다.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = jobs.map(job => {
+    const state = job.state || {};
+    const status = state.status || "idle";
+    const isRunning = (status === "running" || status === "queued");
+    return `
+      <tr>
+        <td>${job.target_school} / ${job.target_class}</td>
+        <td>${job.kidsnote_id}</td>
+        <td>${(job.schedule.times || []).join(", ")}</td>
+        <td>${job.next_run_at || "-"}</td>
+        <td><span class="badge ${status}">${badgeLabel[status] || status}</span></td>
+        <td>
+          <button onclick="runJobNow('${job.id}')" ${isRunning ? "disabled" : ""}>지금 실행</button>
+          <button onclick="deleteJob('${job.id}')">삭제</button>
+        </td>
+      </tr>`;
+  }).join("");
+}
+
 refreshStatus();
 refreshLogs();
 refreshSchedule();
+refreshJobs();
+renderTimeChips();
 setInterval(refreshStatus, 3000);
 setInterval(refreshLogs, 3000);
+setInterval(refreshJobs, 3000);
 </script>
 </body>
 </html>

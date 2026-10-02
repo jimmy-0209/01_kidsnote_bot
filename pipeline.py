@@ -41,7 +41,7 @@ CHILDREN = [
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
-def get_kidsnote_data(default_child, target_school, switch_from_name=None, switch_to_name=None, days_back=7):
+def get_kidsnote_data(kidsnote_id, kidsnote_pw, default_child, target_school, switch_from_name=None, switch_to_name=None, days_back=7):
     print("▶ 1. 스크래핑 시작...")
     p = sync_playwright().start()
     browser = p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
@@ -68,8 +68,8 @@ def get_kidsnote_data(default_child, target_school, switch_from_name=None, switc
 
     try:
         page.goto("https://www.kidsnote.com/login/")
-        page.fill("input[name='username']", KIDSNOTE_ID)
-        page.fill("input[name='password']", KIDSNOTE_PW)
+        page.fill("input[name='username']", kidsnote_id)
+        page.fill("input[name='password']", kidsnote_pw)
         page.click("button[type='submit']")
         page.wait_for_timeout(5000)
 
@@ -383,6 +383,7 @@ def run_all_children():
         print(f"\n===== ▶ [{child['target_school']}] 처리 시작 =====")
         try:
             data_list, b, p = get_kidsnote_data(
+                KIDSNOTE_ID, KIDSNOTE_PW,
                 child["default_child"], child["target_school"],
                 child["switch_from_name"], child["switch_to_name"]
             )
@@ -397,3 +398,28 @@ def run_all_children():
             if p: p.stop()
 
     print("\n✅ 모든 작업이 완벽하게 완료되었습니다!")
+
+
+def run_single_job(job: dict):
+    """다중 사용자 프로토타입용: job 딕셔너리 하나(키즈노트 ID/PW + 학교/반)를 받아
+    get_kidsnote_data + analyze_and_calendar를 그대로 재사용해 실행한다.
+
+    기존 CHILDREN은 한 계정 안에서 아이 전환(이름 드롭다운)이 필요했지만,
+    다중 사용자 job은 "로그인 1개 + 학교/반 1개"로 단순화했으므로
+    switch_from_name/switch_to_name 없이 기본 흐름(default_child 없이 바로 소속 학교로 진입)만 사용한다.
+    """
+    b, p = None, None
+    target_school = job["target_school"]
+    print(f"\n===== ▶ [job:{job['id']} / {target_school}] 처리 시작 =====")
+    try:
+        data_list, b, p = get_kidsnote_data(
+            job["kidsnote_id"], job["kidsnote_pw"],
+            default_child=None, target_school=target_school,
+        )
+        if data_list:
+            analyze_and_calendar(data_list, target_school, job["target_class"])
+        else:
+            print(f"\n⚠️ [job:{job['id']}] 조건에 맞는 공지사항이 없습니다.")
+    finally:
+        if b: b.close()
+        if p: p.stop()

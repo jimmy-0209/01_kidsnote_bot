@@ -8,6 +8,7 @@ __pycache__/
 credentials*.json
 token*.json
 gemini API.txt
+users_config.json
 
 # 런타임 생성 이미지 (알림/공지 캡처본)
 notice_img_*.png
