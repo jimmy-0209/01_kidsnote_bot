@@ -82,11 +82,6 @@
     <!-- 자동 실행 스케줄 -->
     <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.1s">
       <h2 class="text-lg font-semibold text-slate-900 mb-4">자동 실행 스케줄</h2>
-      <label class="flex items-center gap-2 mb-4 text-sm font-medium text-slate-700 cursor-pointer select-none">
-        <input type="checkbox" id="scheduleEnabled"
-          class="w-4 h-4 rounded accent-brand-600 cursor-pointer">
-        웹 내장 스케줄러 사용
-      </label>
       <input type="text" id="scheduleTimes" placeholder="예: 09:00, 21:00"
         class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm
                transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
@@ -97,9 +92,6 @@
                transition-all duration-150 hover:bg-slate-700 hover:scale-105 active:scale-95">
         스케줄 저장
       </button>
-      <p class="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-4">
-        ⚠️ 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 매일 21:00에 이미 자동 실행 중입니다. 이 웹 스케줄러를 켤 경우, 중복 실행을 피하려면 작업 스케줄러 쪽을 꺼두세요.
-      </p>
     </section>
 
     <!-- 다중 사용자 작업 등록 (마법사) -->
@@ -139,6 +131,18 @@
             <span id="verifiedIdLabel"></span> 인증 완료
           </div>
           <button type="button" onclick="resetWizard()" class="text-xs text-slate-400 hover:text-slate-600 underline">다시 인증</button>
+        </div>
+
+        <div class="flex items-center justify-between bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+          <div>
+            <p class="text-sm font-semibold text-slate-700">구글 캘린더 연동</p>
+            <p id="googleAuthStatus" class="text-xs text-slate-400 mt-0.5">아직 연동되지 않았습니다.</p>
+          </div>
+          <button type="button" id="googleAuthBtn" onclick="connectGoogleCalendar()"
+            class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold
+                   transition-all duration-150 hover:bg-slate-100 hover:scale-105 active:scale-95">
+            구글 캘린더 연동하기
+          </button>
         </div>
 
         <div>
@@ -306,15 +310,13 @@ async function triggerRun() {
 async function refreshSchedule() {
   const res = await fetch("/api/schedule");
   const data = await res.json();
-  document.getElementById("scheduleEnabled").checked = !!data.enabled;
   document.getElementById("scheduleTimes").value = (data.times || []).join(", ");
   document.getElementById("scheduleMeta").textContent = data.next_run_at
     ? `다음 예정 실행: ${data.next_run_at}`
-    : "예정된 실행 없음 (스케줄러가 꺼져 있거나 등록된 시각이 없습니다)";
+    : "예정된 실행 없음 (등록된 시각이 없습니다)";
 }
 
 async function saveSchedule() {
-  const enabled = document.getElementById("scheduleEnabled").checked;
   const times = document.getElementById("scheduleTimes").value
     .split(",")
     .map(s => s.trim())
@@ -323,7 +325,7 @@ async function saveSchedule() {
   const res = await fetch("/api/schedule", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled, times }),
+    body: JSON.stringify({ enabled: true, times }),
   });
   const data = await res.json();
   if (!res.ok) {
@@ -372,6 +374,8 @@ let wizardPendingChildren = []; // 이번 계정에 "아이 추가"로 등록 �
 let wizardDraftKeywords = [];   // 현재 작성 중인 자녀의 키워드
 let wizardKidsnoteId = "";
 let wizardKidsnotePw = "";
+let wizardGoogleCredentials = null; // 구글 OAuth 연동 완료 시 받은 토큰(.credentials)
+let googlePollTimer = null;
 
 function el(id) { return document.getElementById(id); }
 
@@ -430,11 +434,13 @@ function enterWizardStep2() {
 
   wizardPendingChildren = [];
   wizardDraftKeywords = [];
+  wizardGoogleCredentials = null;
   pendingTimes = [];
   renderTimeChips();
   renderDraftKeywordChips();
   renderPendingChildrenList();
   resetChildDraftSelects();
+  updateGoogleAuthStatus();
 
   el("wizardStep1").classList.add("hidden");
   el("wizardStep2").classList.remove("hidden");
@@ -446,11 +452,58 @@ function resetWizard() {
   wizardDraftKeywords = [];
   wizardKidsnoteId = "";
   wizardKidsnotePw = "";
+  wizardGoogleCredentials = null;
+  if (googlePollTimer) { clearInterval(googlePollTimer); googlePollTimer = null; }
   el("wizardKidsnoteId").value = "";
   el("wizardKidsnotePw").value = "";
   el("verifyError").classList.add("hidden");
   el("wizardStep2").classList.add("hidden");
   el("wizardStep1").classList.remove("hidden");
+}
+
+function updateGoogleAuthStatus() {
+  const label = el("googleAuthStatus");
+  const btn = el("googleAuthBtn");
+  if (wizardGoogleCredentials) {
+    label.textContent = "✅ 연동 완료";
+    label.className = "text-xs text-emerald-600 mt-0.5";
+    btn.textContent = "다시 연동";
+  } else {
+    label.textContent = "아직 연동되지 않았습니다.";
+    label.className = "text-xs text-slate-400 mt-0.5";
+    btn.textContent = "구글 캘린더 연동하기";
+  }
+}
+
+function connectGoogleCalendar() {
+  const state = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).replace(/-/g, "");
+  window.open(`/api/auth/google/login?state=${state}`, "googleAuth", "width=500,height=650");
+
+  if (googlePollTimer) clearInterval(googlePollTimer);
+  const btn = el("googleAuthBtn");
+  btn.disabled = true;
+  el("googleAuthStatus").textContent = "브라우저 창에서 구글 로그인을 완료해 주세요...";
+
+  let elapsed = 0;
+  googlePollTimer = setInterval(async () => {
+    elapsed += 2000;
+    if (elapsed > 3 * 60 * 1000) {
+      clearInterval(googlePollTimer);
+      googlePollTimer = null;
+      btn.disabled = false;
+      updateGoogleAuthStatus();
+      return;
+    }
+    const res = await fetch(`/api/auth/google/status/${state}?consume=true`);
+    const data = await res.json();
+    if (data.ready) {
+      clearInterval(googlePollTimer);
+      googlePollTimer = null;
+      wizardGoogleCredentials = data.credentials;
+      btn.disabled = false;
+      updateGoogleAuthStatus();
+    }
+  }, 2000);
 }
 
 function resetChildDraftSelects() {
@@ -609,6 +662,7 @@ async function submitWizardRegistration() {
       kidsnote_pw: wizardKidsnotePw,
       children: wizardPendingChildren,
       times: pendingTimes,
+      google_credentials: wizardGoogleCredentials,
     }),
   });
 
@@ -678,6 +732,9 @@ async function refreshUsers() {
           <div class="flex items-center gap-3">
             <span class="font-semibold text-slate-700 text-sm">${escapeHtml(user.kidsnote_id)}</span>
             ${badgeHtml(status)}
+            ${user.has_google_calendar
+              ? '<span class="text-xs text-emerald-600">📅 구글 캘린더 연동됨</span>'
+              : '<span class="text-xs text-slate-400">📅 구글 캘린더 미연동(레거시 token.json 사용)</span>'}
           </div>
           <div class="flex items-center gap-3">
             <span class="text-xs text-slate-400">${(user.schedule.times || []).join(", ")} · 다음 실행: ${user.next_run_at || "-"}</span>

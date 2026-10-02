@@ -2,10 +2,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
+import google_oauth
 import kidsnote_discovery
 import scheduler
 import users_store
@@ -103,6 +104,7 @@ def create_user(payload: dict):
     kidsnote_pw = payload.get("kidsnote_pw") or ""
     children = payload.get("children") or []
     times = payload.get("times") or []
+    google_credentials = payload.get("google_credentials") or None
 
     if not kidsnote_id or not kidsnote_pw:
         return JSONResponse({"error": "키즈노트 ID/PW를 입력하세요."}, status_code=400)
@@ -115,7 +117,7 @@ def create_user(payload: dict):
     if error:
         return JSONResponse({"error": error}, status_code=400)
 
-    user = users_store.add_user(kidsnote_id, kidsnote_pw, children, times)
+    user = users_store.add_user(kidsnote_id, kidsnote_pw, children, times, google_credentials)
     scheduler.register_user_schedule(user)
     return JSONResponse(users_store.public_user(user))
 
@@ -151,3 +153,44 @@ def verify_kidsnote(payload: dict):
     if not result.get("ok"):
         return JSONResponse({"error": result.get("error", "계정 확인에 실패했습니다.")}, status_code=422)
     return JSONResponse({"children": result["children"]})
+
+
+def _google_redirect_uri(request: Request) -> str:
+    return str(request.base_url).rstrip("/") + "/api/auth/google/callback"
+
+
+@app.get("/api/auth/google/login")
+def google_login(request: Request, state: str | None = None):
+    if not google_oauth.is_configured():
+        return JSONResponse(
+            {"error": "서버에 GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET이 설정되어 있지 않습니다."},
+            status_code=500,
+        )
+    result = google_oauth.create_auth_url(_google_redirect_uri(request), state=state)
+    return RedirectResponse(result["auth_url"])
+
+
+@app.get("/api/auth/google/callback", response_class=HTMLResponse)
+def google_callback(request: Request, code: str | None = None, state: str | None = None, error: str | None = None):
+    if error:
+        return HTMLResponse(f"<h3>구글 로그인 실패</h3><p>{error}</p><p>이 창을 닫아주세요.</p>", status_code=400)
+    if not code or not state:
+        return HTMLResponse("<h3>잘못된 요청입니다.</h3>", status_code=400)
+
+    try:
+        ok = google_oauth.exchange_code(state, code, _google_redirect_uri(request))
+    except Exception as e:
+        return HTMLResponse(f"<h3>토큰 교환 중 오류가 발생했습니다</h3><p>{e}</p>", status_code=500)
+
+    if not ok:
+        return HTMLResponse("<h3>알 수 없는 인증 요청입니다 (state 불일치).</h3>", status_code=400)
+
+    return HTMLResponse("<h3>✅ 구글 캘린더 연동 완료</h3><p>이 창을 닫고 원래 탭으로 돌아가세요.</p>")
+
+
+@app.get("/api/auth/google/status/{state}")
+def google_status(state: str, consume: bool = False):
+    if consume:
+        creds = google_oauth.pop_credentials(state)
+        return JSONResponse({"ready": creds is not None, "credentials": creds})
+    return JSONResponse({"ready": google_oauth.peek_status(state)})

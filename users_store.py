@@ -31,12 +31,16 @@ def get_user(user_id: str) -> dict | None:
     return None
 
 
-def add_user(kidsnote_id: str, kidsnote_pw: str, children: list[dict], times: list[str]) -> dict:
+def add_user(kidsnote_id: str, kidsnote_pw: str, children: list[dict], times: list[str],
+             google_credentials: dict | None = None) -> dict:
     """사용자 한 명(= 키즈노트 계정 하나)을 등록한다.
 
     children: [{"child_name", "school", "class", "institution_testid", "keywords"}, ...]
     입력 순서가 곧 로그인 시 처리 순서(index)이며, pipeline.run_children_for_user가
     index==0은 소속만 전환, index>0은 이름 전환 후 소속 전환으로 분기한다.
+
+    google_credentials: 구글 OAuth로 위임받은 토큰 dict(선택). 비어 있으면
+    pipeline._get_calendar_service가 기존 단일 계정용 token.json으로 대체 동작한다.
     """
     data = _load()
     user = {
@@ -45,6 +49,7 @@ def add_user(kidsnote_id: str, kidsnote_pw: str, children: list[dict], times: li
         "kidsnote_pw": kidsnote_pw,
         "children": children,
         "schedule": {"enabled": True, "times": times},
+        "google_credentials": google_credentials,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
     data["users"].append(user)
@@ -61,5 +66,10 @@ def delete_user(user_id: str) -> bool:
 
 
 def public_user(user: dict) -> dict:
-    """비밀번호를 제외한 사용자 정보 (API 응답용)."""
-    return {k: v for k, v in user.items() if k != "kidsnote_pw"}
+    """비밀번호와 구글 OAuth 토큰(refresh_token 등 민감정보)을 제외한 사용자 정보 (API 응답용).
+
+    대신 연동 여부만 불리언으로 노출해 대시보드가 "연동됨/안됨" 표시는 할 수 있게 한다.
+    """
+    public = {k: v for k, v in user.items() if k not in ("kidsnote_pw", "google_credentials")}
+    public["has_google_calendar"] = bool(user.get("google_credentials"))
+    return public

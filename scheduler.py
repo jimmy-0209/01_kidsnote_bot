@@ -18,12 +18,9 @@ SCHEDULE_CONFIG_PATH = BASE_DIR / "schedule_config.json"
 
 LEGACY_JOB_ID = "legacy"
 
-# 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 실제로는 매일 21:00에 실행되고
-# 있어(이름과 달리 요일 제한 없음), 그 동작을 기본값으로 그대로 반영한다.
-# 다만 같은 시각에 두 메커니즘이 동시에 돌면 키즈노트에 중복 로그인하게 되므로
-# 기본값은 비활성화(enabled=false)로 두고, 웹 스케줄러를 쓰기로 했다면 사용자가
-# 직접 켠 뒤 기존 작업 스케줄러 쪽을 꺼야 한다.
-DEFAULT_SCHEDULE = {"enabled": False, "times": ["21:00"]}
+# 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)는 삭제되고 웹 스케줄러가 유일한
+# 자동 실행 경로가 되었으므로, 항상 활성화된 상태를 기본값으로 한다.
+DEFAULT_SCHEDULE = {"enabled": True, "times": ["21:00"]}
 
 # 실행 요청을 순서대로 처리하는 큐 + 워커 스레드 1개.
 # 여러 사용자의 스케줄이 같은 시각에 겹치더라도 Playwright 브라우저가

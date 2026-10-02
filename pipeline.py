@@ -194,11 +194,20 @@ def get_kidsnote_data(kidsnote_id, kidsnote_pw, default_child, target_school, sw
         print(f"❌ 스크래핑 오류: {e}")
         return [], browser, p
 
-def analyze_and_calendar(data_list, target_school, target_class):
-    print("\n▶ 2. 여러 문서 종합 및 Gemini AI 분석 시작...")
-    client = genai.Client(api_key=GEMINI_API_KEY)
+def _get_calendar_service(google_credentials: dict | None = None):
+    """구글 캘린더 API 서비스 객체를 만든다.
 
-    # 구글 캘린더 인증 로직
+    google_credentials(다중 사용자 OAuth로 위임받은 토큰 dict)가 주어지면 그걸로
+    인증하고, 없으면 기존 단일 계정용 token.json/credentials.json 방식 그대로
+    동작한다 — 레거시 흐름(run_all_children)과 아직 구글 연동을 하지 않은
+    사용자는 이 분기 덕분에 변경 전과 100% 동일하게 계속 작동한다.
+    """
+    if google_credentials:
+        creds = Credentials.from_authorized_user_info(google_credentials, SCOPES)
+        if not creds.valid and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        return build('calendar', 'v3', credentials=creds)
+
     creds = None
     if os.path.exists('token.json'):
         creds = Credentials.from_authorized_user_file('token.json', SCOPES)
@@ -211,7 +220,15 @@ def analyze_and_calendar(data_list, target_school, target_class):
         with open('token.json', 'w') as token:
             token.write(creds.to_json())
 
-    service = build('calendar', 'v3', credentials=creds)
+    return build('calendar', 'v3', credentials=creds)
+
+
+def analyze_and_calendar(data_list, target_school, target_class, google_credentials: dict | None = None):
+    print("\n▶ 2. 여러 문서 종합 및 Gemini AI 분석 시작...")
+    client = genai.Client(api_key=GEMINI_API_KEY)
+
+    service = _get_calendar_service(google_credentials)
+    print(f"  > 📅 캘린더 인증 방식: {'사용자별 구글 연동' if google_credentials else '로컬 token.json(레거시)'}")
 
     # 실행 회차마다 Gemini가 같은 행사를 다른 문구로 요약하면 제목 유사도 매칭이
     # 실패해 중복 등록되므로, 기존 등록 일정을 먼저 조회해 Gemini에게 참고자료로 제공한다
@@ -484,7 +501,7 @@ def run_children_for_user(user: dict):
                 target_keywords = child.get("keywords") or DEFAULT_KEYWORDS
                 data_list = _scrape_notices(page, target_keywords)
                 if data_list:
-                    analyze_and_calendar(data_list, child["school"], child["class"])
+                    analyze_and_calendar(data_list, child["school"], child["class"], user.get("google_credentials"))
                 else:
                     print(f"\n⚠️ [{child['child_name']}] 조건에 맞는 공지사항이 없습니다.")
             except Exception as e:
