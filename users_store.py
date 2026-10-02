@@ -57,6 +57,29 @@ def add_user(kidsnote_id: str, kidsnote_pw: str, children: list[dict], times: li
     return user
 
 
+def update_user(user_id: str, times: list[str] | None = None,
+                 children_keywords: list[list[str]] | None = None) -> dict | None:
+    """스케줄 시각과 자녀별 키워드만 선택적으로 업데이트한다.
+
+    kidsnote_id/kidsnote_pw, 각 자녀의 child_name/school/class/institution_testid,
+    google_credentials는 절대 건드리지 않는다. children_keywords는 user["children"]과
+    같은 순서(index)로 정렬된 키워드 리스트의 리스트여야 하며, 길이가 다르면 짧은 쪽
+    기준으로만 매칭한다(자녀 추가/삭제는 이 함수의 책임이 아님).
+    """
+    data = _load()
+    for user in data["users"]:
+        if user["id"] != user_id:
+            continue
+        if times is not None:
+            user["schedule"]["times"] = times
+        if children_keywords is not None:
+            for child, keywords in zip(user["children"], children_keywords):
+                child["keywords"] = keywords
+        _save(data)
+        return user
+    return None
+
+
 def delete_user(user_id: str) -> bool:
     data = _load()
     before = len(data["users"])

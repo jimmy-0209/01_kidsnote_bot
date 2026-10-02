@@ -52,6 +52,14 @@
   #logs::-webkit-scrollbar-thumb { background: #475569; border-radius: 9999px; }
 
   tbody tr { transition: background-color .15s ease; }
+
+  @keyframes modalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes modalCardIn {
+    from { opacity: 0; transform: translateY(12px) scale(.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .modal-backdrop-in { animation: modalBackdropIn .18s ease-out; }
+  .modal-card-in { animation: modalCardIn .25s cubic-bezier(.16,1,.3,1); }
 </style>
 </head>
 <body class="bg-slate-50 text-slate-800 min-h-screen">
@@ -62,40 +70,8 @@
     <p class="text-sm text-slate-500 mt-1">키즈노트 공지사항 스크래핑 · Gemini 분석 · 구글 캘린더 동기화</p>
   </header>
 
-  <!-- 상태 카드 -->
+  <!-- 다중 사용자 작업 등록 (마법사) -->
   <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.05s">
-    <div class="flex items-center justify-between flex-wrap gap-4">
-      <div class="flex items-center gap-3">
-        <span id="badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold text-white bg-slate-400">대기중</span>
-      </div>
-      <button id="runBtn" onclick="triggerRun()"
-        class="px-5 py-2.5 rounded-xl bg-brand-600 text-white font-semibold shadow-md shadow-brand-600/30
-               transition-all duration-150 hover:bg-brand-700 hover:scale-105 active:scale-95
-               disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100">
-        지금 실행
-      </button>
-    </div>
-    <div id="meta" class="text-sm text-slate-500 mt-3"></div>
-  </section>
-
-  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <!-- 자동 실행 스케줄 -->
-    <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.1s">
-      <h2 class="text-lg font-semibold text-slate-900 mb-4">자동 실행 스케줄</h2>
-      <input type="text" id="scheduleTimes" placeholder="예: 09:00, 21:00"
-        class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm
-               transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
-      <p class="text-xs text-slate-400 mt-2">쉼표로 구분된 HH:MM 시각(24시간제, 매일 반복). 저장하면 즉시 적용됩니다.</p>
-      <div class="text-sm text-slate-600 mt-3" id="scheduleMeta"></div>
-      <button onclick="saveSchedule()"
-        class="mt-4 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold
-               transition-all duration-150 hover:bg-slate-700 hover:scale-105 active:scale-95">
-        스케줄 저장
-      </button>
-    </section>
-
-    <!-- 다중 사용자 작업 등록 (마법사) -->
-    <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.15s">
       <h2 class="text-lg font-semibold text-slate-900 mb-1">다중 사용자 작업 등록</h2>
       <p class="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 mb-4">
         ⚠️ 프로토타입: 비밀번호는 암호화 없이 로컬 파일에 평문 저장됩니다. 공유 PC/외부 접속 환경에서는 사용하지 마세요.
@@ -138,7 +114,7 @@
             <p class="text-sm font-semibold text-slate-700">구글 캘린더 연동</p>
             <p id="googleAuthStatus" class="text-xs text-slate-400 mt-0.5">아직 연동되지 않았습니다.</p>
           </div>
-          <button type="button" id="googleAuthBtn" onclick="connectGoogleCalendar()"
+          <button type="button" id="googleAuthBtn" onclick="openGoogleAuthModal()"
             class="px-4 py-2 rounded-xl bg-white border border-slate-200 text-slate-700 text-sm font-semibold
                    transition-all duration-150 hover:bg-slate-100 hover:scale-105 active:scale-95">
             구글 캘린더 연동하기
@@ -210,7 +186,6 @@
         </button>
       </div>
     </section>
-  </div>
 
   <!-- 등록된 작업 목록 -->
   <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.2s">
@@ -231,6 +206,106 @@
 
 </div>
 
+<!-- 구글 캘린더 연동 매뉴얼 모달 -->
+<div id="googleAuthModal" class="hidden fixed inset-0 z-50">
+  <div id="googleAuthModalBackdrop" onclick="closeGoogleAuthModal()" class="absolute inset-0 bg-slate-900/50"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div id="googleAuthModalCard" class="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
+      <button type="button" onclick="closeGoogleAuthModal()"
+        class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+        ✕
+      </button>
+
+      <h3 class="text-lg font-bold text-slate-900 pr-8">구글 캘린더 연동 안내</h3>
+      <p class="text-sm text-slate-500 mt-1">연동 전에 아래 내용을 꼭 확인해 주세요.</p>
+
+      <div class="mt-5 space-y-3">
+        <div class="flex gap-3">
+          <span class="shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">1</span>
+          <p class="text-sm text-slate-700 pt-0.5">화면 하단의 버튼을 누르면 구글 로그인 화면으로 이동합니다.</p>
+        </div>
+
+        <div class="flex gap-3">
+          <span class="shrink-0 w-6 h-6 rounded-full bg-brand-600 text-white text-xs font-bold flex items-center justify-center">2</span>
+          <div class="pt-0.5">
+            <p class="text-sm text-slate-700">권한 동의 화면이 나타납니다.</p>
+            <div class="mt-2 flex gap-2 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2.5">
+              <span class="text-rose-500 text-base leading-none">⚠️</span>
+              <p class="text-sm text-rose-700 font-semibold">
+                ✅ <u>"Google 캘린더 액세스 및 일정 수정 권한"</u> 항목이 보이면 반드시 체크박스를 선택해야 합니다!
+                <span class="block font-normal text-rose-600 mt-1">이 권한을 허용하지 않으면 로봇이 캘린더에 일정을 등록할 수 없습니다.</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2.5 mt-1">
+          <span class="text-slate-400 text-base leading-none">💡</span>
+          <p class="text-xs text-slate-500">
+            <span class="font-semibold">관리자 참고:</span> 서버의 <code class="bg-slate-200/70 px-1 py-0.5 rounded text-[11px]">.env</code> 파일에
+            <code class="bg-slate-200/70 px-1 py-0.5 rounded text-[11px]">GOOGLE_CLIENT_ID</code>/<code class="bg-slate-200/70 px-1 py-0.5 rounded text-[11px]">GOOGLE_CLIENT_SECRET</code>이
+            정상 등록되어 있어야 연동이 활성화됩니다.
+          </p>
+        </div>
+      </div>
+
+      <button type="button" onclick="confirmGoogleAuthModal()"
+        class="w-full mt-5 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-600/30
+               transition-all duration-150 hover:bg-brand-700 hover:scale-[1.02] active:scale-95">
+        안내를 확인했습니다. 구글 연동 시작하기
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 사용자 설정 수정 모달 -->
+<div id="editUserModal" class="hidden fixed inset-0 z-50">
+  <div id="editUserModalBackdrop" onclick="closeEditModal()" class="absolute inset-0 bg-slate-900/50"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div id="editUserModalCard" class="relative bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[85vh] overflow-y-auto">
+      <button type="button" onclick="closeEditModal()"
+        class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+        ✕
+      </button>
+
+      <h3 class="text-lg font-bold text-slate-900 pr-8">설정 수정</h3>
+      <p id="editUserIdLabel" class="text-sm text-slate-500 mt-1"></p>
+
+      <div class="mt-5">
+        <p class="text-xs font-semibold text-slate-500 mb-2">스케줄 시각</p>
+        <div class="flex gap-2">
+          <input type="text" id="editTimeInput" placeholder="HH:MM"
+            class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+          <button type="button" onclick="addEditTimeChip()"
+            class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
+            시각 추가
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-2 min-h-[2rem] mt-2" id="editTimeChips"></div>
+      </div>
+
+      <div class="mt-5">
+        <p class="text-xs font-semibold text-slate-500 mb-2">자녀별 스크래핑 타겟 키워드</p>
+        <div id="editChildrenList" class="space-y-3"></div>
+      </div>
+
+      <div class="flex gap-2 mt-6">
+        <button type="button" onclick="closeEditModal()"
+          class="flex-1 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-600 text-sm font-semibold transition-all duration-150 hover:bg-slate-200 hover:scale-[1.02] active:scale-95">
+          취소
+        </button>
+        <button type="button" id="saveEditBtn" onclick="saveEditModal()"
+          class="flex-1 px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-600/30
+                 transition-all duration-150 hover:bg-brand-700 hover:scale-[1.02] active:scale-95">
+          저장
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const badgeStyles = {
   idle:    { label: "대기중", cls: "bg-slate-400" },
@@ -248,31 +323,6 @@ function escapeHtml(s) {
 function badgeHtml(status, extraClass = "") {
   const style = badgeStyles[status] || { label: status, cls: "bg-slate-400" };
   return `<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold text-white ${style.cls} ${extraClass}">${style.label}</span>`;
-}
-
-function applyBadge(el, status, baseClass) {
-  const style = badgeStyles[status] || { label: status, cls: "bg-slate-400" };
-  el.textContent = style.label;
-  el.className = `${baseClass} ${style.cls}`;
-}
-
-async function refreshStatus() {
-  const res = await fetch("/api/status");
-  const state = await res.json();
-
-  applyBadge(
-    document.getElementById("badge"),
-    state.status,
-    "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold text-white"
-  );
-
-  document.getElementById("runBtn").disabled = (state.status === "running" || state.status === "queued");
-
-  let metaText = "";
-  if (state.last_started_at) metaText += `마지막 실행 시작: ${state.last_started_at}  `;
-  if (state.last_finished_at) metaText += `종료: ${state.last_finished_at}`;
-  if (state.last_error) metaText += `  (오류: ${state.last_error})`;
-  document.getElementById("meta").textContent = metaText;
 }
 
 function colorizeLogLine(line) {
@@ -296,43 +346,6 @@ async function refreshLogs() {
   if (atBottom) {
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }
-}
-
-async function triggerRun() {
-  const res = await fetch("/api/run", { method: "POST" });
-  if (res.status === 409) {
-    const data = await res.json();
-    alert(data.error);
-  }
-  refreshStatus();
-}
-
-async function refreshSchedule() {
-  const res = await fetch("/api/schedule");
-  const data = await res.json();
-  document.getElementById("scheduleTimes").value = (data.times || []).join(", ");
-  document.getElementById("scheduleMeta").textContent = data.next_run_at
-    ? `다음 예정 실행: ${data.next_run_at}`
-    : "예정된 실행 없음 (등록된 시각이 없습니다)";
-}
-
-async function saveSchedule() {
-  const times = document.getElementById("scheduleTimes").value
-    .split(",")
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
-  const res = await fetch("/api/schedule", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ enabled: true, times }),
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    alert(data.error || "저장에 실패했습니다.");
-    return;
-  }
-  refreshSchedule();
 }
 
 let pendingTimes = [];
@@ -473,6 +486,22 @@ function updateGoogleAuthStatus() {
     label.className = "text-xs text-slate-400 mt-0.5";
     btn.textContent = "구글 캘린더 연동하기";
   }
+}
+
+function openGoogleAuthModal() {
+  const modal = el("googleAuthModal");
+  modal.classList.remove("hidden");
+  el("googleAuthModalBackdrop").classList.add("modal-backdrop-in");
+  el("googleAuthModalCard").classList.add("modal-card-in");
+}
+
+function closeGoogleAuthModal() {
+  el("googleAuthModal").classList.add("hidden");
+}
+
+function confirmGoogleAuthModal() {
+  closeGoogleAuthModal();
+  connectGoogleCalendar();
 }
 
 function connectGoogleCalendar() {
@@ -700,11 +729,160 @@ async function deleteUser(userId) {
   setTimeout(refreshUsers, 150);
 }
 
+// ===== 사용자 설정 수정 모달 =====
+let editingUserId = null;
+let editTimes = [];
+let editChildrenKeywords = []; // children과 같은 순서(index)로 정렬된 키워드 배열들
+
+function renderEditTimeChips() {
+  const container = el("editTimeChips");
+  container.innerHTML = "";
+  editTimes.forEach((t, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip-in inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
+    chip.innerHTML = `${t} <button type="button" onclick="removeEditTimeChip(${i})"
+      class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
+    container.appendChild(chip);
+  });
+}
+
+function addEditTimeChip() {
+  const input = el("editTimeInput");
+  const t = input.value.trim();
+  if (!/^\d{1,2}:\d{2}$/.test(t)) {
+    alert("HH:MM 형식으로 입력하세요 (예: 09:00)");
+    return;
+  }
+  if (!editTimes.includes(t)) editTimes.push(t);
+  input.value = "";
+  renderEditTimeChips();
+}
+
+function removeEditTimeChip(i) {
+  editTimes.splice(i, 1);
+  renderEditTimeChips();
+}
+
+function renderEditKeywordChips(i) {
+  const container = el(`editKeywordChips-${i}`);
+  if (!container) return;
+  container.innerHTML = "";
+  (editChildrenKeywords[i] || []).forEach((k, j) => {
+    const chip = document.createElement("span");
+    chip.className = "chip-in inline-flex items-center gap-1.5 bg-indigo-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
+    chip.innerHTML = `${escapeHtml(k)} <button type="button" onclick="removeEditKeyword(${i}, ${j})"
+      class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
+    container.appendChild(chip);
+  });
+}
+
+function addEditPresetKeyword(i, selectEl) {
+  const k = selectEl.value;
+  if (k && !editChildrenKeywords[i].includes(k)) {
+    editChildrenKeywords[i].push(k);
+    renderEditKeywordChips(i);
+  }
+  selectEl.value = "";
+}
+
+function addEditCustomKeyword(i) {
+  const input = el(`editKeywordCustomInput-${i}`);
+  const k = input.value.trim();
+  if (k && !editChildrenKeywords[i].includes(k)) {
+    editChildrenKeywords[i].push(k);
+    renderEditKeywordChips(i);
+  }
+  input.value = "";
+}
+
+function removeEditKeyword(i, j) {
+  editChildrenKeywords[i].splice(j, 1);
+  renderEditKeywordChips(i);
+}
+
+function renderEditChildrenList(children) {
+  const container = el("editChildrenList");
+  container.innerHTML = children.map((c, i) => `
+    <div class="border border-slate-100 rounded-xl p-3">
+      <p class="text-sm font-semibold text-slate-700 mb-2">${escapeHtml(c.child_name)} · ${escapeHtml(c.school)} / ${escapeHtml(c.class)}</p>
+      <select onchange="addEditPresetKeyword(${i}, this)"
+        class="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+        <option value="">프리셋 선택...</option>
+        ${KEYWORD_PRESETS.map(k => `<option value="${k}">${k}</option>`).join("")}
+      </select>
+      <div class="flex gap-2 mt-2">
+        <input type="text" id="editKeywordCustomInput-${i}" placeholder="커스텀 키워드"
+          class="flex-1 px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+        <button type="button" onclick="addEditCustomKeyword(${i})"
+          class="px-3 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
+          추가
+        </button>
+      </div>
+      <div class="flex flex-wrap gap-2 mt-2" id="editKeywordChips-${i}"></div>
+    </div>`).join("");
+
+  children.forEach((_, i) => renderEditKeywordChips(i));
+}
+
+function openEditModal(userId) {
+  const user = latestUsers.find(u => u.id === userId);
+  if (!user) return;
+
+  editingUserId = userId;
+  el("editUserIdLabel").textContent = user.kidsnote_id;
+  editTimes = [...(user.schedule.times || [])];
+  editChildrenKeywords = (user.children || []).map(c => [...(c.keywords || [])]);
+
+  renderEditTimeChips();
+  renderEditChildrenList(user.children || []);
+
+  const modal = el("editUserModal");
+  modal.classList.remove("hidden");
+  el("editUserModalBackdrop").classList.add("modal-backdrop-in");
+  el("editUserModalCard").classList.add("modal-card-in");
+}
+
+function closeEditModal() {
+  el("editUserModal").classList.add("hidden");
+  editingUserId = null;
+}
+
+async function saveEditModal() {
+  if (!editTimes.length) {
+    alert("스케줄 시각을 하나 이상 추가하세요.");
+    return;
+  }
+
+  const btn = el("saveEditBtn");
+  btn.disabled = true;
+  btn.textContent = "저장 중...";
+
+  const res = await fetch(`/api/users/${editingUserId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ times: editTimes, children_keywords: editChildrenKeywords }),
+  });
+
+  btn.disabled = false;
+  btn.textContent = "저장";
+
+  if (!res.ok) {
+    const data = await res.json();
+    alert(data.error || "저장에 실패했습니다.");
+    return;
+  }
+
+  closeEditModal();
+  refreshUsers();
+}
+
 let knownUserIds = new Set();
+let latestUsers = []; // 수정 모달이 PATCH 없이 현재값을 바로 채울 수 있도록 캐시
 
 async function refreshUsers() {
   const res = await fetch("/api/users");
   const users = await res.json();
+  latestUsers = users;
   const container = el("usersList");
 
   if (!users.length) {
@@ -742,6 +920,10 @@ async function refreshUsers() {
               class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
               지금 실행
             </button>
+            <button onclick="openEditModal('${user.id}')"
+              class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold transition-all duration-150 hover:bg-slate-200 hover:scale-105 active:scale-95">
+              수정
+            </button>
             <button onclick="deleteUser('${user.id}')"
               class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold transition-all duration-150 hover:bg-rose-100 hover:scale-105 active:scale-95">
               삭제
@@ -755,12 +937,9 @@ async function refreshUsers() {
   knownUserIds = currentIds;
 }
 
-refreshStatus();
 refreshLogs();
-refreshSchedule();
 refreshUsers();
 renderTimeChips();
-setInterval(refreshStatus, 3000);
 setInterval(refreshLogs, 3000);
 setInterval(refreshUsers, 3000);
 </script>

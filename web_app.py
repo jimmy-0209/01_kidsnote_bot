@@ -122,6 +122,27 @@ def create_user(payload: dict):
     return JSONResponse(users_store.public_user(user))
 
 
+@app.patch("/api/users/{user_id}")
+def patch_user(user_id: str, payload: dict):
+    existing = users_store.get_user(user_id)
+    if not existing:
+        return JSONResponse({"error": "해당 사용자를 찾을 수 없습니다."}, status_code=404)
+
+    times = payload.get("times")
+    if times is not None:
+        error = _validate_times(times)
+        if error:
+            return JSONResponse({"error": error}, status_code=400)
+
+    children_keywords = payload.get("children_keywords")
+    if children_keywords is not None and len(children_keywords) != len(existing["children"]):
+        return JSONResponse({"error": "자녀 수와 키워드 목록 수가 일치하지 않습니다."}, status_code=400)
+
+    user = users_store.update_user(user_id, times=times, children_keywords=children_keywords)
+    scheduler.register_user_schedule(user)
+    return JSONResponse(users_store.public_user(user))
+
+
 @app.delete("/api/users/{user_id}")
 def remove_user(user_id: str):
     scheduler.unregister_user_schedule(user_id)
