@@ -2,100 +2,211 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KidsnoteBot 대시보드</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: { brand: { 50:'#eef2ff',100:'#e0e7ff',500:'#6366f1',600:'#4f46e5',700:'#4338ca' } },
+        fontFamily: { mono: ['"JetBrains Mono"', '"Fira Code"', 'ui-monospace', 'SFMono-Regular', 'monospace'] },
+      }
+    }
+  }
+</script>
 <style>
-  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; color: #222; }
-  h1 { font-size: 1.4rem; }
-  .status-row { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
-  .badge { padding: 4px 12px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; color: #fff; }
-  .badge.idle { background: #888; }
-  .badge.running { background: #e0a800; }
-  .badge.success { background: #2e7d32; }
-  .badge.error { background: #c62828; }
-  button { padding: 8px 16px; font-size: 0.95rem; cursor: pointer; }
-  button:disabled { cursor: not-allowed; opacity: 0.5; }
-  .meta { color: #666; font-size: 0.85rem; margin-bottom: 20px; }
-  pre#logs { background: #111; color: #ddd; padding: 12px; height: 420px; overflow-y: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; }
-  .schedule-box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
-  .schedule-box label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-  .schedule-box input[type="text"] { width: 100%; padding: 6px; font-size: 0.9rem; box-sizing: border-box; }
-  .schedule-meta { color: #666; font-size: 0.85rem; margin-top: 8px; }
-  .hint { color: #888; font-size: 0.8rem; }
-  .job-form { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-  .job-form .row { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
-  .job-form input[type="text"], .job-form input[type="password"] { flex: 1; min-width: 140px; padding: 6px; font-size: 0.9rem; box-sizing: border-box; }
-  .chip-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
-  .chip { background: #eee; border-radius: 12px; padding: 4px 10px; font-size: 0.85rem; display: flex; align-items: center; gap: 6px; }
-  .chip button { padding: 0 4px; font-size: 0.8rem; background: none; border: none; cursor: pointer; color: #888; }
-  table.jobs-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 0.9rem; }
-  table.jobs-table th, table.jobs-table td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
-  table.jobs-table .badge { font-size: 0.75rem; padding: 2px 8px; }
-  .badge.queued { background: #0d6efd; }
+  body { font-family: -apple-system, "Segoe UI", sans-serif; }
+
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .card-in { opacity: 0; animation: fadeInUp .5s ease-out forwards; }
+
+  @keyframes chipIn {
+    from { opacity: 0; transform: scale(.7); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .chip-in { animation: chipIn .18s ease-out; }
+  .chip-out { animation: chipIn .15s ease-in reverse forwards; }
+
+  @keyframes livePulseRing {
+    0%   { box-shadow: 0 0 0 0 rgba(99,102,241,0.45); }
+    100% { box-shadow: 0 0 0 8px rgba(99,102,241,0); }
+  }
+  .live-dot { position: relative; }
+  .live-dot::before {
+    content: ""; position: absolute; inset: 0; border-radius: 9999px;
+    animation: livePulseRing 1.4s ease-out infinite;
+  }
+  .badge-amber.live-dot::before { animation-name: livePulseRingAmber; }
+  @keyframes livePulseRingAmber {
+    0%   { box-shadow: 0 0 0 0 rgba(217,119,6,0.45); }
+    100% { box-shadow: 0 0 0 8px rgba(217,119,6,0); }
+  }
+
+  #logs { scrollbar-width: thin; scrollbar-color: #475569 #0f172a; }
+  #logs::-webkit-scrollbar { width: 8px; }
+  #logs::-webkit-scrollbar-track { background: #0f172a; }
+  #logs::-webkit-scrollbar-thumb { background: #475569; border-radius: 9999px; }
+
+  tbody tr { transition: background-color .15s ease; }
 </style>
 </head>
-<body>
-  <h1>KidsnoteBot 대시보드</h1>
+<body class="bg-slate-50 text-slate-800 min-h-screen">
+<div class="max-w-5xl mx-auto px-4 py-10 space-y-6">
 
-  <div class="status-row">
-    <span id="badge" class="badge idle">대기중</span>
-    <button id="runBtn" onclick="triggerRun()">지금 실행</button>
-  </div>
-  <div id="meta" class="meta"></div>
+  <header class="card-in" style="animation-delay:.0s">
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900">KidsnoteBot <span class="text-brand-600">대시보드</span></h1>
+    <p class="text-sm text-slate-500 mt-1">키즈노트 공지사항 스크래핑 · Gemini 분석 · 구글 캘린더 동기화</p>
+  </header>
 
-  <h3>자동 실행 스케줄</h3>
-  <div class="schedule-box">
-    <label><input type="checkbox" id="scheduleEnabled"> 웹 내장 스케줄러 사용</label>
-    <input type="text" id="scheduleTimes" placeholder="예: 09:00, 21:00">
-    <div class="hint">쉼표로 구분된 HH:MM 시각(24시간제, 매일 반복). 저장하면 즉시 적용됩니다.</div>
-    <div class="schedule-meta" id="scheduleMeta"></div>
-    <button onclick="saveSchedule()" style="margin-top:10px;">스케줄 저장</button>
-    <div class="hint" style="margin-top:10px;">⚠️ 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 매일 21:00에 이미 자동 실행 중입니다. 이 웹 스케줄러를 켤 경우, 중복 실행을 피하려면 작업 스케줄러 쪽을 꺼두세요.</div>
-  </div>
-
-  <h3>다중 사용자 작업 등록 (프로토타입)</h3>
-  <div class="hint" style="margin-bottom:10px;">⚠️ 비밀번호는 암호화 없이 로컬 파일(users_config.json)에 평문 저장되는 프로토타입입니다. 공유 PC/외부 접속 환경에서는 사용하지 마세요.</div>
-  <div class="job-form">
-    <div class="row">
-      <input type="text" id="jobKidsnoteId" placeholder="키즈노트 ID">
-      <input type="password" id="jobKidsnotePw" placeholder="키즈노트 비밀번호">
+  <!-- 상태 카드 -->
+  <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.05s">
+    <div class="flex items-center justify-between flex-wrap gap-4">
+      <div class="flex items-center gap-3">
+        <span id="badge" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold text-white bg-slate-400">대기중</span>
+      </div>
+      <button id="runBtn" onclick="triggerRun()"
+        class="px-5 py-2.5 rounded-xl bg-brand-600 text-white font-semibold shadow-md shadow-brand-600/30
+               transition-all duration-150 hover:bg-brand-700 hover:scale-105 active:scale-95
+               disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100">
+        지금 실행
+      </button>
     </div>
-    <div class="row">
-      <input type="text" id="jobTargetSchool" placeholder="학교/기관명 (예: 한별유치원)">
-      <input type="text" id="jobTargetClass" placeholder="반 이름 (예: 기쁨2반)">
-    </div>
-    <div class="row">
-      <input type="text" id="jobTimeInput" placeholder="HH:MM" style="max-width:120px;">
-      <button type="button" onclick="addTimeChip()">시각 추가</button>
-    </div>
-    <div class="chip-row" id="jobTimeChips"></div>
-    <button onclick="createJob()">작업 등록</button>
+    <div id="meta" class="text-sm text-slate-500 mt-3"></div>
+  </section>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- 자동 실행 스케줄 -->
+    <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.1s">
+      <h2 class="text-lg font-semibold text-slate-900 mb-4">자동 실행 스케줄</h2>
+      <label class="flex items-center gap-2 mb-4 text-sm font-medium text-slate-700 cursor-pointer select-none">
+        <input type="checkbox" id="scheduleEnabled"
+          class="w-4 h-4 rounded accent-brand-600 cursor-pointer">
+        웹 내장 스케줄러 사용
+      </label>
+      <input type="text" id="scheduleTimes" placeholder="예: 09:00, 21:00"
+        class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm
+               transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+      <p class="text-xs text-slate-400 mt-2">쉼표로 구분된 HH:MM 시각(24시간제, 매일 반복). 저장하면 즉시 적용됩니다.</p>
+      <div class="text-sm text-slate-600 mt-3" id="scheduleMeta"></div>
+      <button onclick="saveSchedule()"
+        class="mt-4 px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold
+               transition-all duration-150 hover:bg-slate-700 hover:scale-105 active:scale-95">
+        스케줄 저장
+      </button>
+      <p class="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 mt-4">
+        ⚠️ 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 매일 21:00에 이미 자동 실행 중입니다. 이 웹 스케줄러를 켤 경우, 중복 실행을 피하려면 작업 스케줄러 쪽을 꺼두세요.
+      </p>
+    </section>
+
+    <!-- 다중 사용자 작업 등록 -->
+    <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.15s">
+      <h2 class="text-lg font-semibold text-slate-900 mb-1">다중 사용자 작업 등록</h2>
+      <p class="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 mb-4">
+        ⚠️ 프로토타입: 비밀번호는 암호화 없이 로컬 파일에 평문 저장됩니다. 공유 PC/외부 접속 환경에서는 사용하지 마세요.
+      </p>
+
+      <div class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <input type="text" id="jobKidsnoteId" placeholder="키즈노트 ID"
+            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+          <input type="password" id="jobKidsnotePw" placeholder="비밀번호"
+            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <input type="text" id="jobTargetSchool" placeholder="학교/기관명 (예: 한별유치원)"
+            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+          <input type="text" id="jobTargetClass" placeholder="반 이름 (예: 기쁨2반)"
+            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+        </div>
+        <div class="flex gap-2">
+          <input type="text" id="jobTimeInput" placeholder="HH:MM"
+            class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+          <button type="button" onclick="addTimeChip()"
+            class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
+            시각 추가
+          </button>
+        </div>
+        <div class="flex flex-wrap gap-2 min-h-[2rem]" id="jobTimeChips"></div>
+        <button onclick="createJob()"
+          class="w-full px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-600/30
+                 transition-all duration-150 hover:bg-brand-700 hover:scale-[1.02] active:scale-95">
+          작업 등록
+        </button>
+      </div>
+    </section>
   </div>
 
-  <h3>등록된 작업 목록</h3>
-  <table class="jobs-table">
-    <thead>
-      <tr><th>학교/반</th><th>키즈노트 ID</th><th>스케줄</th><th>다음 실행</th><th>상태</th><th></th></tr>
-    </thead>
-    <tbody id="jobsTableBody">
-      <tr><td colspan="6">불러오는 중...</td></tr>
-    </tbody>
-  </table>
+  <!-- 등록된 작업 목록 -->
+  <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6 overflow-x-auto" style="animation-delay:.2s">
+    <h2 class="text-lg font-semibold text-slate-900 mb-4">등록된 작업 목록</h2>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-100">
+          <th class="py-2 pr-3">학교/반</th>
+          <th class="py-2 pr-3">키즈노트 ID</th>
+          <th class="py-2 pr-3">스케줄</th>
+          <th class="py-2 pr-3">다음 실행</th>
+          <th class="py-2 pr-3">상태</th>
+          <th class="py-2"></th>
+        </tr>
+      </thead>
+      <tbody id="jobsTableBody" class="divide-y divide-slate-100">
+        <tr><td colspan="6" class="py-6 text-center text-slate-400">불러오는 중...</td></tr>
+      </tbody>
+    </table>
+  </section>
 
-  <h3>실행 로그 (run_log.txt 최근 200줄)</h3>
-  <pre id="logs">불러오는 중...</pre>
+  <!-- 실행 로그 -->
+  <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.25s">
+    <h2 class="text-lg font-semibold text-slate-900 mb-4">실행 로그 <span class="text-slate-400 font-normal text-sm">(run_log.txt 최근 200줄)</span></h2>
+    <div id="logs"
+      class="bg-slate-900 text-slate-300 rounded-xl p-4 h-[420px] overflow-y-auto font-mono text-[12.5px] leading-relaxed whitespace-pre-wrap break-all">
+      불러오는 중...
+    </div>
+  </section>
+
+</div>
 
 <script>
-const badgeLabel = { idle: "대기중", queued: "대기열", running: "실행중", success: "완료", error: "오류" };
+const badgeStyles = {
+  idle:    { label: "대기중", cls: "bg-slate-400" },
+  queued:  { label: "대기열", cls: "bg-amber-500 badge-amber live-dot" },
+  running: { label: "실행중", cls: "bg-brand-600 live-dot" },
+  success: { label: "완료",   cls: "bg-emerald-500" },
+  error:   { label: "오류",   cls: "bg-rose-500" },
+};
+const badgeLabel = Object.fromEntries(Object.entries(badgeStyles).map(([k, v]) => [k, v.label]));
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c]));
+}
+
+function badgeHtml(status, extraClass = "") {
+  const style = badgeStyles[status] || { label: status, cls: "bg-slate-400" };
+  return `<span class="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold text-white ${style.cls} ${extraClass}">${style.label}</span>`;
+}
+
+function applyBadge(el, status, baseClass) {
+  const style = badgeStyles[status] || { label: status, cls: "bg-slate-400" };
+  el.textContent = style.label;
+  el.className = `${baseClass} ${style.cls}`;
+}
 
 async function refreshStatus() {
   const res = await fetch("/api/status");
   const state = await res.json();
 
-  const badge = document.getElementById("badge");
-  badge.textContent = badgeLabel[state.status] || state.status;
-  badge.className = "badge " + state.status;
+  applyBadge(
+    document.getElementById("badge"),
+    state.status,
+    "inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold text-white"
+  );
 
-  document.getElementById("runBtn").disabled = (state.status === "running");
+  document.getElementById("runBtn").disabled = (state.status === "running" || state.status === "queued");
 
   let metaText = "";
   if (state.last_started_at) metaText += `마지막 실행 시작: ${state.last_started_at}  `;
@@ -104,13 +215,27 @@ async function refreshStatus() {
   document.getElementById("meta").textContent = metaText;
 }
 
+function colorizeLogLine(line) {
+  let cls = "text-slate-300";
+  if (line.includes("❌")) cls = "text-rose-400";
+  else if (line.includes("⚠️")) cls = "text-amber-400";
+  else if (line.includes("✔️") || line.includes("🔄") || line.includes("✅")) cls = "text-emerald-400";
+  else if (line.startsWith("=====")) cls = "text-indigo-300 font-semibold";
+  return `<div class="${cls}">${escapeHtml(line) || "&nbsp;"}</div>`;
+}
+
 async function refreshLogs() {
   const res = await fetch("/api/logs?lines=200");
   const data = await res.json();
   const el = document.getElementById("logs");
-  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
-  el.textContent = data.logs || "(로그 없음)";
-  if (atBottom) el.scrollTop = el.scrollHeight;
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 30;
+
+  const text = data.logs || "(로그 없음)";
+  el.innerHTML = text.split("\n").map(colorizeLogLine).join("");
+
+  if (atBottom) {
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }
 }
 
 async function triggerRun() {
@@ -159,8 +284,9 @@ function renderTimeChips() {
   container.innerHTML = "";
   pendingTimes.forEach((t, i) => {
     const chip = document.createElement("span");
-    chip.className = "chip";
-    chip.innerHTML = `${t} <button type="button" onclick="removeTimeChip(${i})">×</button>`;
+    chip.className = "chip-in inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
+    chip.innerHTML = `${t} <button type="button" onclick="removeTimeChip(${i})"
+      class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
     container.appendChild(chip);
   });
 }
@@ -222,9 +348,17 @@ async function runJobNow(jobId) {
 
 async function deleteJob(jobId) {
   if (!confirm("이 작업을 삭제할까요?")) return;
+  const row = document.getElementById(`job-row-${jobId}`);
+  if (row) {
+    row.style.transition = "opacity .15s ease, transform .15s ease";
+    row.style.opacity = "0";
+    row.style.transform = "translateX(8px)";
+  }
   await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
-  refreshJobs();
+  setTimeout(refreshJobs, 150);
 }
+
+let knownJobIds = new Set();
 
 async function refreshJobs() {
   const res = await fetch("/api/jobs");
@@ -232,27 +366,39 @@ async function refreshJobs() {
   const tbody = document.getElementById("jobsTableBody");
 
   if (!jobs.length) {
-    tbody.innerHTML = '<tr><td colspan="6">등록된 작업이 없습니다.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">등록된 작업이 없습니다.</td></tr>';
+    knownJobIds = new Set();
     return;
   }
+
+  const currentIds = new Set(jobs.map(j => j.id));
 
   tbody.innerHTML = jobs.map(job => {
     const state = job.state || {};
     const status = state.status || "idle";
     const isRunning = (status === "running" || status === "queued");
+    const isNew = !knownJobIds.has(job.id);
     return `
-      <tr>
-        <td>${job.target_school} / ${job.target_class}</td>
-        <td>${job.kidsnote_id}</td>
-        <td>${(job.schedule.times || []).join(", ")}</td>
-        <td>${job.next_run_at || "-"}</td>
-        <td><span class="badge ${status}">${badgeLabel[status] || status}</span></td>
-        <td>
-          <button onclick="runJobNow('${job.id}')" ${isRunning ? "disabled" : ""}>지금 실행</button>
-          <button onclick="deleteJob('${job.id}')">삭제</button>
+      <tr id="job-row-${job.id}" class="${isNew ? 'chip-in' : ''} hover:bg-slate-50">
+        <td class="py-3 pr-3 font-medium text-slate-700">${escapeHtml(job.target_school)} / ${escapeHtml(job.target_class)}</td>
+        <td class="py-3 pr-3 text-slate-500">${escapeHtml(job.kidsnote_id)}</td>
+        <td class="py-3 pr-3 text-slate-500">${(job.schedule.times || []).join(", ")}</td>
+        <td class="py-3 pr-3 text-slate-500">${job.next_run_at || "-"}</td>
+        <td class="py-3 pr-3">${badgeHtml(status)}</td>
+        <td class="py-3 whitespace-nowrap">
+          <button onclick="runJobNow('${job.id}')" ${isRunning ? "disabled" : ""}
+            class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
+            지금 실행
+          </button>
+          <button onclick="deleteJob('${job.id}')"
+            class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold transition-all duration-150 hover:bg-rose-100 hover:scale-105 active:scale-95 ml-1">
+            삭제
+          </button>
         </td>
       </tr>`;
   }).join("");
+
+  knownJobIds = currentIds;
 }
 
 refreshStatus();
