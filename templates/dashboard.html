@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>KidsnoteBot 대시보드</title>
+<style>
+  body { font-family: -apple-system, "Segoe UI", sans-serif; max-width: 800px; margin: 40px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 1.4rem; }
+  .status-row { display: flex; align-items: center; gap: 12px; margin: 16px 0; }
+  .badge { padding: 4px 12px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; color: #fff; }
+  .badge.idle { background: #888; }
+  .badge.running { background: #e0a800; }
+  .badge.success { background: #2e7d32; }
+  .badge.error { background: #c62828; }
+  button { padding: 8px 16px; font-size: 0.95rem; cursor: pointer; }
+  button:disabled { cursor: not-allowed; opacity: 0.5; }
+  .meta { color: #666; font-size: 0.85rem; margin-bottom: 20px; }
+  pre#logs { background: #111; color: #ddd; padding: 12px; height: 420px; overflow-y: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all; }
+  .schedule-box { border: 1px solid #ddd; border-radius: 8px; padding: 16px; margin-bottom: 24px; }
+  .schedule-box label { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .schedule-box input[type="text"] { width: 100%; padding: 6px; font-size: 0.9rem; box-sizing: border-box; }
+  .schedule-meta { color: #666; font-size: 0.85rem; margin-top: 8px; }
+  .hint { color: #888; font-size: 0.8rem; }
+</style>
+</head>
+<body>
+  <h1>KidsnoteBot 대시보드</h1>
+
+  <div class="status-row">
+    <span id="badge" class="badge idle">대기중</span>
+    <button id="runBtn" onclick="triggerRun()">지금 실행</button>
+  </div>
+  <div id="meta" class="meta"></div>
+
+  <h3>자동 실행 스케줄</h3>
+  <div class="schedule-box">
+    <label><input type="checkbox" id="scheduleEnabled"> 웹 내장 스케줄러 사용</label>
+    <input type="text" id="scheduleTimes" placeholder="예: 09:00, 21:00">
+    <div class="hint">쉼표로 구분된 HH:MM 시각(24시간제, 매일 반복). 저장하면 즉시 적용됩니다.</div>
+    <div class="schedule-meta" id="scheduleMeta"></div>
+    <button onclick="saveSchedule()" style="margin-top:10px;">스케줄 저장</button>
+    <div class="hint" style="margin-top:10px;">⚠️ 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)가 매일 21:00에 이미 자동 실행 중입니다. 이 웹 스케줄러를 켤 경우, 중복 실행을 피하려면 작업 스케줄러 쪽을 꺼두세요.</div>
+  </div>
+
+  <h3>실행 로그 (run_log.txt 최근 200줄)</h3>
+  <pre id="logs">불러오는 중...</pre>
+
+<script>
+const badgeLabel = { idle: "대기중", running: "실행중", success: "완료", error: "오류" };
+
+async function refreshStatus() {
+  const res = await fetch("/api/status");
+  const state = await res.json();
+
+  const badge = document.getElementById("badge");
+  badge.textContent = badgeLabel[state.status] || state.status;
+  badge.className = "badge " + state.status;
+
+  document.getElementById("runBtn").disabled = (state.status === "running");
+
+  let metaText = "";
+  if (state.last_started_at) metaText += `마지막 실행 시작: ${state.last_started_at}  `;
+  if (state.last_finished_at) metaText += `종료: ${state.last_finished_at}`;
+  if (state.last_error) metaText += `  (오류: ${state.last_error})`;
+  document.getElementById("meta").textContent = metaText;
+}
+
+async function refreshLogs() {
+  const res = await fetch("/api/logs?lines=200");
+  const data = await res.json();
+  const el = document.getElementById("logs");
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+  el.textContent = data.logs || "(로그 없음)";
+  if (atBottom) el.scrollTop = el.scrollHeight;
+}
+
+async function triggerRun() {
+  const res = await fetch("/api/run", { method: "POST" });
+  if (res.status === 409) {
+    const data = await res.json();
+    alert(data.error);
+  }
+  refreshStatus();
+}
+
+async function refreshSchedule() {
+  const res = await fetch("/api/schedule");
+  const data = await res.json();
+  document.getElementById("scheduleEnabled").checked = !!data.enabled;
+  document.getElementById("scheduleTimes").value = (data.times || []).join(", ");
+  document.getElementById("scheduleMeta").textContent = data.next_run_at
+    ? `다음 예정 실행: ${data.next_run_at}`
+    : "예정된 실행 없음 (스케줄러가 꺼져 있거나 등록된 시각이 없습니다)";
+}
+
+async function saveSchedule() {
+  const enabled = document.getElementById("scheduleEnabled").checked;
+  const times = document.getElementById("scheduleTimes").value
+    .split(",")
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
+
+  const res = await fetch("/api/schedule", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled, times }),
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    alert(data.error || "저장에 실패했습니다.");
+    return;
+  }
+  refreshSchedule();
+}
+
+refreshStatus();
+refreshLogs();
+refreshSchedule();
+setInterval(refreshStatus, 3000);
+setInterval(refreshLogs, 3000);
+</script>
+</body>
+</html>
