@@ -102,62 +102,118 @@
       </p>
     </section>
 
-    <!-- 다중 사용자 작업 등록 -->
+    <!-- 다중 사용자 작업 등록 (마법사) -->
     <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.15s">
       <h2 class="text-lg font-semibold text-slate-900 mb-1">다중 사용자 작업 등록</h2>
       <p class="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2 mb-4">
         ⚠️ 프로토타입: 비밀번호는 암호화 없이 로컬 파일에 평문 저장됩니다. 공유 PC/외부 접속 환경에서는 사용하지 마세요.
       </p>
 
-      <div class="space-y-3">
-        <div class="grid grid-cols-2 gap-3">
-          <input type="text" id="jobKidsnoteId" placeholder="키즈노트 ID"
-            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
-          <input type="password" id="jobKidsnotePw" placeholder="비밀번호"
-            class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+      <!-- Step 1: 계정 인증 -->
+      <div id="wizardStep1" class="space-y-3">
+        <div class="flex items-center gap-2 text-xs font-semibold text-brand-600">
+          <span class="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center">1</span>
+          계정 인증
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <input type="text" id="jobTargetSchool" placeholder="학교/기관명 (예: 한별유치원)"
+          <input type="text" id="wizardKidsnoteId" placeholder="키즈노트 ID"
             class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
-          <input type="text" id="jobTargetClass" placeholder="반 이름 (예: 기쁨2반)"
+          <input type="password" id="wizardKidsnotePw" placeholder="비밀번호"
             class="px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
         </div>
-        <div class="flex gap-2">
-          <input type="text" id="jobTimeInput" placeholder="HH:MM"
-            class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
-          <button type="button" onclick="addTimeChip()"
-            class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
-            시각 추가
+        <div id="verifyError" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-3 py-2"></div>
+        <button id="verifyBtn" onclick="verifyAccount()"
+          class="w-full px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-600/30
+                 transition-all duration-150 hover:bg-brand-700 hover:scale-[1.02] active:scale-95
+                 disabled:opacity-60 disabled:pointer-events-none disabled:hover:scale-100">
+          계정 인증
+        </button>
+        <p class="text-xs text-slate-400">키즈노트에 로그인해 자녀/기관 정보를 불러옵니다. 자녀 수에 따라 최대 1분 정도 걸릴 수 있어요.</p>
+      </div>
+
+      <!-- Step 2: 자녀 추가 -->
+      <div id="wizardStep2" class="hidden space-y-4">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2 text-xs font-semibold text-emerald-600">
+            <span class="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center">✓</span>
+            <span id="verifiedIdLabel"></span> 인증 완료
+          </div>
+          <button type="button" onclick="resetWizard()" class="text-xs text-slate-400 hover:text-slate-600 underline">다시 인증</button>
+        </div>
+
+        <div>
+          <p class="text-xs font-semibold text-slate-500 mb-2">공유 스케줄 시각 (이 계정에 등록하는 모든 자녀에 공통 적용)</p>
+          <div class="flex gap-2">
+            <input type="text" id="jobTimeInput" placeholder="HH:MM"
+              class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+            <button type="button" onclick="addTimeChip()"
+              class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
+              시각 추가
+            </button>
+          </div>
+          <div class="flex flex-wrap gap-2 min-h-[2rem] mt-2" id="jobTimeChips"></div>
+        </div>
+
+        <div class="border-t border-slate-100 pt-4 space-y-3">
+          <p class="text-xs font-semibold text-slate-500">자녀 추가</p>
+
+          <select id="childNameSelect" onchange="onChildSelectChange()"
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+            <option value="">자녀 선택...</option>
+          </select>
+
+          <select id="childSchoolSelect" onchange="onSchoolSelectChange()" disabled
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white disabled:opacity-50">
+            <option value="">기관(학교) 선택...</option>
+          </select>
+
+          <select id="childClassSelect" disabled
+            class="w-full px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white disabled:opacity-50">
+            <option value="">반 선택...</option>
+          </select>
+
+          <div>
+            <div class="flex gap-2">
+              <select id="keywordPreset" onchange="addPresetKeyword()"
+                class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+                <option value="">스크래핑 타겟 키워드 프리셋...</option>
+              </select>
+            </div>
+            <div class="flex gap-2 mt-2">
+              <input type="text" id="keywordCustomInput" placeholder="커스텀 키워드 직접 입력"
+                class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+              <button type="button" onclick="addCustomKeyword()"
+                class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
+                추가
+              </button>
+            </div>
+            <div class="flex flex-wrap gap-2 min-h-[2rem] mt-2" id="keywordChips"></div>
+          </div>
+
+          <button type="button" onclick="addChildToList()"
+            class="w-full px-4 py-2 rounded-xl bg-slate-900 text-white text-sm font-semibold transition-all duration-150 hover:bg-slate-700 hover:scale-[1.02] active:scale-95">
+            + 아이 추가
           </button>
         </div>
-        <div class="flex flex-wrap gap-2 min-h-[2rem]" id="jobTimeChips"></div>
-        <button onclick="createJob()"
-          class="w-full px-4 py-2.5 rounded-xl bg-brand-600 text-white text-sm font-semibold shadow-md shadow-brand-600/30
-                 transition-all duration-150 hover:bg-brand-700 hover:scale-[1.02] active:scale-95">
-          작업 등록
+
+        <div id="pendingChildrenList" class="space-y-2"></div>
+
+        <button id="submitWizardBtn" onclick="submitWizardRegistration()"
+          class="w-full px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-md shadow-emerald-600/30
+                 transition-all duration-150 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95
+                 disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100">
+          등록 완료
         </button>
       </div>
     </section>
   </div>
 
   <!-- 등록된 작업 목록 -->
-  <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6 overflow-x-auto" style="animation-delay:.2s">
-    <h2 class="text-lg font-semibold text-slate-900 mb-4">등록된 작업 목록</h2>
-    <table class="w-full text-sm">
-      <thead>
-        <tr class="text-left text-slate-400 text-xs uppercase tracking-wide border-b border-slate-100">
-          <th class="py-2 pr-3">학교/반</th>
-          <th class="py-2 pr-3">키즈노트 ID</th>
-          <th class="py-2 pr-3">스케줄</th>
-          <th class="py-2 pr-3">다음 실행</th>
-          <th class="py-2 pr-3">상태</th>
-          <th class="py-2"></th>
-        </tr>
-      </thead>
-      <tbody id="jobsTableBody" class="divide-y divide-slate-100">
-        <tr><td colspan="6" class="py-6 text-center text-slate-400">불러오는 중...</td></tr>
-      </tbody>
-    </table>
+  <section class="card-in bg-white rounded-2xl shadow-lg shadow-slate-200/60 p-6" style="animation-delay:.2s">
+    <h2 class="text-lg font-semibold text-slate-900 mb-4">등록된 사용자 목록</h2>
+    <div id="usersList" class="space-y-3">
+      <p class="py-6 text-center text-slate-400 text-sm">불러오는 중...</p>
+    </div>
   </section>
 
   <!-- 실행 로그 -->
@@ -308,107 +364,348 @@ function removeTimeChip(i) {
   renderTimeChips();
 }
 
-async function createJob() {
-  const payload = {
-    kidsnote_id: document.getElementById("jobKidsnoteId").value.trim(),
-    kidsnote_pw: document.getElementById("jobKidsnotePw").value,
-    target_school: document.getElementById("jobTargetSchool").value.trim(),
-    target_class: document.getElementById("jobTargetClass").value.trim(),
-    times: pendingTimes,
-  };
+// ===== 다중 사용자 등록 마법사 =====
+const KEYWORD_PRESETS = ["계획안", "가정통신문", "취소", "연기", "변경", "긴급"];
 
-  const res = await fetch("/api/jobs", {
+let wizardChildren = [];        // /api/verify-kidsnote 응답 (자녀별 기관 후보 포함)
+let wizardPendingChildren = []; // 이번 계정에 "아이 추가"로 등록 대기 중인 자녀들
+let wizardDraftKeywords = [];   // 현재 작성 중인 자녀의 키워드
+let wizardKidsnoteId = "";
+let wizardKidsnotePw = "";
+
+function el(id) { return document.getElementById(id); }
+
+async function verifyAccount() {
+  const kidsnoteId = el("wizardKidsnoteId").value.trim();
+  const kidsnotePw = el("wizardKidsnotePw").value;
+  const errorBox = el("verifyError");
+  errorBox.classList.add("hidden");
+
+  if (!kidsnoteId || !kidsnotePw) {
+    errorBox.textContent = "키즈노트 ID/비밀번호를 입력하세요.";
+    errorBox.classList.remove("hidden");
+    return;
+  }
+
+  const btn = el("verifyBtn");
+  btn.disabled = true;
+  btn.textContent = "인증 중... (최대 1분)";
+
+  try {
+    const res = await fetch("/api/verify-kidsnote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kidsnote_id: kidsnoteId, kidsnote_pw: kidsnotePw }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errorBox.textContent = data.error || "계정 인증에 실패했습니다.";
+      errorBox.classList.remove("hidden");
+      return;
+    }
+
+    wizardChildren = data.children;
+    wizardKidsnoteId = kidsnoteId;
+    wizardKidsnotePw = kidsnotePw;
+    enterWizardStep2();
+  } catch (e) {
+    errorBox.textContent = "서버와 통신할 수 없습니다.";
+    errorBox.classList.remove("hidden");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "계정 인증";
+  }
+}
+
+function enterWizardStep2() {
+  el("verifiedIdLabel").textContent = wizardKidsnoteId;
+
+  const childSelect = el("childNameSelect");
+  childSelect.innerHTML = '<option value="">자녀 선택...</option>' +
+    wizardChildren.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)} (${escapeHtml(c.birth)})</option>`).join("");
+
+  const presetSelect = el("keywordPreset");
+  presetSelect.innerHTML = '<option value="">스크래핑 타겟 키워드 프리셋...</option>' +
+    KEYWORD_PRESETS.map(k => `<option value="${k}">${k}</option>`).join("");
+
+  wizardPendingChildren = [];
+  wizardDraftKeywords = [];
+  pendingTimes = [];
+  renderTimeChips();
+  renderDraftKeywordChips();
+  renderPendingChildrenList();
+  resetChildDraftSelects();
+
+  el("wizardStep1").classList.add("hidden");
+  el("wizardStep2").classList.remove("hidden");
+}
+
+function resetWizard() {
+  wizardChildren = [];
+  wizardPendingChildren = [];
+  wizardDraftKeywords = [];
+  wizardKidsnoteId = "";
+  wizardKidsnotePw = "";
+  el("wizardKidsnoteId").value = "";
+  el("wizardKidsnotePw").value = "";
+  el("verifyError").classList.add("hidden");
+  el("wizardStep2").classList.add("hidden");
+  el("wizardStep1").classList.remove("hidden");
+}
+
+function resetChildDraftSelects() {
+  el("childNameSelect").value = "";
+  const schoolSelect = el("childSchoolSelect");
+  schoolSelect.innerHTML = '<option value="">기관(학교) 선택...</option>';
+  schoolSelect.disabled = true;
+  const classSelect = el("childClassSelect");
+  classSelect.innerHTML = '<option value="">반 선택...</option>';
+  classSelect.disabled = true;
+  wizardDraftKeywords = [];
+  renderDraftKeywordChips();
+}
+
+function onChildSelectChange() {
+  const name = el("childNameSelect").value;
+  const schoolSelect = el("childSchoolSelect");
+  const classSelect = el("childClassSelect");
+  classSelect.innerHTML = '<option value="">반 선택...</option>';
+  classSelect.disabled = true;
+
+  if (!name) {
+    schoolSelect.innerHTML = '<option value="">기관(학교) 선택...</option>';
+    schoolSelect.disabled = true;
+    return;
+  }
+
+  const child = wizardChildren.find(c => c.name === name);
+  const uniqueSchools = [...new Set((child.institutions || []).map(i => i.line1))];
+  schoolSelect.innerHTML = '<option value="">기관(학교) 선택...</option>' +
+    uniqueSchools.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+  schoolSelect.disabled = uniqueSchools.length === 0;
+}
+
+function onSchoolSelectChange() {
+  const name = el("childNameSelect").value;
+  const school = el("childSchoolSelect").value;
+  const classSelect = el("childClassSelect");
+
+  if (!name || !school) {
+    classSelect.innerHTML = '<option value="">반 선택...</option>';
+    classSelect.disabled = true;
+    return;
+  }
+
+  const child = wizardChildren.find(c => c.name === name);
+  const matches = (child.institutions || []).filter(i => i.line1 === school);
+  classSelect.innerHTML = '<option value="">반 선택...</option>' +
+    matches.map(i => `<option value="${escapeHtml(i.testid)}">${escapeHtml(i.line2)}</option>`).join("");
+  classSelect.disabled = matches.length === 0;
+}
+
+function renderDraftKeywordChips() {
+  const container = el("keywordChips");
+  container.innerHTML = "";
+  wizardDraftKeywords.forEach((k, i) => {
+    const chip = document.createElement("span");
+    chip.className = "chip-in inline-flex items-center gap-1.5 bg-indigo-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
+    chip.innerHTML = `${escapeHtml(k)} <button type="button" onclick="removeDraftKeyword(${i})"
+      class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
+    container.appendChild(chip);
+  });
+}
+
+function addPresetKeyword() {
+  const select = el("keywordPreset");
+  const k = select.value;
+  if (k && !wizardDraftKeywords.includes(k)) {
+    wizardDraftKeywords.push(k);
+    renderDraftKeywordChips();
+  }
+  select.value = "";
+}
+
+function addCustomKeyword() {
+  const input = el("keywordCustomInput");
+  const k = input.value.trim();
+  if (k && !wizardDraftKeywords.includes(k)) {
+    wizardDraftKeywords.push(k);
+    renderDraftKeywordChips();
+  }
+  input.value = "";
+}
+
+function removeDraftKeyword(i) {
+  wizardDraftKeywords.splice(i, 1);
+  renderDraftKeywordChips();
+}
+
+function addChildToList() {
+  const name = el("childNameSelect").value;
+  const school = el("childSchoolSelect").value;
+  const testid = el("childClassSelect").value;
+
+  if (!name || !school || !testid) {
+    alert("자녀 / 기관(학교) / 반을 모두 선택하세요.");
+    return;
+  }
+
+  const child = wizardChildren.find(c => c.name === name);
+  const institution = (child.institutions || []).find(i => i.testid === testid);
+  const klass = institution ? institution.line2 : "";
+
+  wizardPendingChildren.push({
+    child_name: name,
+    school,
+    class: klass,
+    institution_testid: testid,
+    keywords: [...wizardDraftKeywords],
+  });
+  renderPendingChildrenList();
+  resetChildDraftSelects();
+}
+
+function removePendingChild(i) {
+  wizardPendingChildren.splice(i, 1);
+  renderPendingChildrenList();
+}
+
+function renderPendingChildrenList() {
+  const container = el("pendingChildrenList");
+  if (!wizardPendingChildren.length) {
+    container.innerHTML = '<p class="text-xs text-slate-400">아직 추가된 자녀가 없습니다.</p>';
+    return;
+  }
+  container.innerHTML = wizardPendingChildren.map((c, i) => `
+    <div class="chip-in flex items-start justify-between gap-3 bg-slate-50 border border-slate-100 rounded-xl px-4 py-3">
+      <div>
+        <p class="text-sm font-semibold text-slate-700">${escapeHtml(c.child_name)} · ${escapeHtml(c.school)} / ${escapeHtml(c.class)}</p>
+        <p class="text-xs text-slate-400 mt-1">${c.keywords.length ? c.keywords.map(escapeHtml).join(", ") : "키워드 없음"}</p>
+      </div>
+      <button type="button" onclick="removePendingChild(${i})"
+        class="text-xs text-rose-500 hover:text-rose-700 transition-colors">삭제</button>
+    </div>`).join("");
+}
+
+async function submitWizardRegistration() {
+  if (!wizardPendingChildren.length) {
+    alert("등록할 자녀를 하나 이상 추가하세요.");
+    return;
+  }
+  if (!pendingTimes.length) {
+    alert("스케줄 시각을 하나 이상 추가하세요.");
+    return;
+  }
+
+  const btn = el("submitWizardBtn");
+  btn.disabled = true;
+  btn.textContent = "등록 중...";
+
+  const res = await fetch("/api/users", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({
+      kidsnote_id: wizardKidsnoteId,
+      kidsnote_pw: wizardKidsnotePw,
+      children: wizardPendingChildren,
+      times: pendingTimes,
+    }),
   });
-  const data = await res.json();
+
+  btn.disabled = false;
+  btn.textContent = "등록 완료";
+
   if (!res.ok) {
+    const data = await res.json();
     alert(data.error || "등록에 실패했습니다.");
     return;
   }
 
-  document.getElementById("jobKidsnoteId").value = "";
-  document.getElementById("jobKidsnotePw").value = "";
-  document.getElementById("jobTargetSchool").value = "";
-  document.getElementById("jobTargetClass").value = "";
-  pendingTimes = [];
-  renderTimeChips();
-  refreshJobs();
+  refreshUsers();
+  resetWizard();
 }
 
-async function runJobNow(jobId) {
-  const res = await fetch(`/api/jobs/${jobId}/run`, { method: "POST" });
+async function runUserNow(userId) {
+  const res = await fetch(`/api/users/${userId}/run`, { method: "POST" });
   if (res.status === 409) {
     const data = await res.json();
     alert(data.error);
   }
-  refreshJobs();
+  refreshUsers();
 }
 
-async function deleteJob(jobId) {
-  if (!confirm("이 작업을 삭제할까요?")) return;
-  const row = document.getElementById(`job-row-${jobId}`);
-  if (row) {
-    row.style.transition = "opacity .15s ease, transform .15s ease";
-    row.style.opacity = "0";
-    row.style.transform = "translateX(8px)";
+async function deleteUser(userId) {
+  if (!confirm("이 계정과 등록된 자녀 전체를 삭제할까요?")) return;
+  const card = document.getElementById(`user-card-${userId}`);
+  if (card) {
+    card.style.transition = "opacity .15s ease, transform .15s ease";
+    card.style.opacity = "0";
+    card.style.transform = "translateX(8px)";
   }
-  await fetch(`/api/jobs/${jobId}`, { method: "DELETE" });
-  setTimeout(refreshJobs, 150);
+  await fetch(`/api/users/${userId}`, { method: "DELETE" });
+  setTimeout(refreshUsers, 150);
 }
 
-let knownJobIds = new Set();
+let knownUserIds = new Set();
 
-async function refreshJobs() {
-  const res = await fetch("/api/jobs");
-  const jobs = await res.json();
-  const tbody = document.getElementById("jobsTableBody");
+async function refreshUsers() {
+  const res = await fetch("/api/users");
+  const users = await res.json();
+  const container = el("usersList");
 
-  if (!jobs.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="py-6 text-center text-slate-400">등록된 작업이 없습니다.</td></tr>';
-    knownJobIds = new Set();
+  if (!users.length) {
+    container.innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">등록된 사용자가 없습니다.</p>';
+    knownUserIds = new Set();
     return;
   }
 
-  const currentIds = new Set(jobs.map(j => j.id));
+  const currentIds = new Set(users.map(u => u.id));
 
-  tbody.innerHTML = jobs.map(job => {
-    const state = job.state || {};
+  container.innerHTML = users.map(user => {
+    const state = user.state || {};
     const status = state.status || "idle";
     const isRunning = (status === "running" || status === "queued");
-    const isNew = !knownJobIds.has(job.id);
+    const isNew = !knownUserIds.has(user.id);
+    const childrenHtml = (user.children || []).map(c => `
+      <div class="flex items-center justify-between text-sm py-1.5">
+        <span class="text-slate-600">${escapeHtml(c.child_name)} · ${escapeHtml(c.school)} / ${escapeHtml(c.class)}</span>
+        <span class="text-xs text-slate-400">${(c.keywords || []).map(escapeHtml).join(", ") || "키워드 없음"}</span>
+      </div>`).join("");
+
     return `
-      <tr id="job-row-${job.id}" class="${isNew ? 'chip-in' : ''} hover:bg-slate-50">
-        <td class="py-3 pr-3 font-medium text-slate-700">${escapeHtml(job.target_school)} / ${escapeHtml(job.target_class)}</td>
-        <td class="py-3 pr-3 text-slate-500">${escapeHtml(job.kidsnote_id)}</td>
-        <td class="py-3 pr-3 text-slate-500">${(job.schedule.times || []).join(", ")}</td>
-        <td class="py-3 pr-3 text-slate-500">${job.next_run_at || "-"}</td>
-        <td class="py-3 pr-3">${badgeHtml(status)}</td>
-        <td class="py-3 whitespace-nowrap">
-          <button onclick="runJobNow('${job.id}')" ${isRunning ? "disabled" : ""}
-            class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
-            지금 실행
-          </button>
-          <button onclick="deleteJob('${job.id}')"
-            class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold transition-all duration-150 hover:bg-rose-100 hover:scale-105 active:scale-95 ml-1">
-            삭제
-          </button>
-        </td>
-      </tr>`;
+      <div id="user-card-${user.id}" class="${isNew ? 'chip-in' : ''} border border-slate-100 rounded-xl p-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-3">
+            <span class="font-semibold text-slate-700 text-sm">${escapeHtml(user.kidsnote_id)}</span>
+            ${badgeHtml(status)}
+          </div>
+          <div class="flex items-center gap-3">
+            <span class="text-xs text-slate-400">${(user.schedule.times || []).join(", ")} · 다음 실행: ${user.next_run_at || "-"}</span>
+            <button onclick="runUserNow('${user.id}')" ${isRunning ? "disabled" : ""}
+              class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
+              지금 실행
+            </button>
+            <button onclick="deleteUser('${user.id}')"
+              class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold transition-all duration-150 hover:bg-rose-100 hover:scale-105 active:scale-95">
+              삭제
+            </button>
+          </div>
+        </div>
+        <div class="divide-y divide-slate-50 mt-2 border-t border-slate-50">${childrenHtml}</div>
+      </div>`;
   }).join("");
 
-  knownJobIds = currentIds;
+  knownUserIds = currentIds;
 }
 
 refreshStatus();
 refreshLogs();
 refreshSchedule();
-refreshJobs();
+refreshUsers();
 renderTimeChips();
 setInterval(refreshStatus, 3000);
 setInterval(refreshLogs, 3000);
-setInterval(refreshJobs, 3000);
+setInterval(refreshUsers, 3000);
 </script>
 </body>
 </html>

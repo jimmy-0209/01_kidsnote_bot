@@ -9,8 +9,8 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-import jobs_store
 import pipeline
+import users_store
 
 BASE_DIR = Path(__file__).resolve().parent
 LOG_PATH = BASE_DIR / "run_log.txt"
@@ -30,9 +30,11 @@ DEFAULT_SCHEDULE = {"enabled": False, "times": ["21:00"]}
 # 동시에 여러 개 뜨지 않도록 항상 하나씩만(FIFO) 처리한다.
 _RUN_QUEUE: "queue.Queue[tuple[str, str]]" = queue.Queue()
 
-# job_id -> {status, last_started_at, last_finished_at, last_error, trigger}
+# user_id -> {status, last_started_at, last_finished_at, last_error, trigger}
 # status: idle | queued | running | success | error
 # legacy(.env 기반 단일 사용자 흐름)는 LEGACY_JOB_ID 키로 관리한다.
+# 다중 자녀 사용자는 실행 단위가 "사용자 1명(= 자녀 여러 명을 한 세션에서 순회)"이므로
+# 상태도 자녀별이 아니라 사용자(user_id)별로 관리한다.
 JOB_STATES: dict[str, dict] = {
     LEGACY_JOB_ID: {
         "status": "idle",
@@ -67,12 +69,12 @@ class _TeeWriter:
             s.flush()
 
 
-def get_job_state(job_id: str) -> dict:
-    return _get_state(job_id)
+def get_job_state(user_id: str) -> dict:
+    return _get_state(user_id)
 
 
-def _get_state(job_id: str) -> dict:
-    return JOB_STATES.setdefault(job_id, {
+def _get_state(user_id: str) -> dict:
+    return JOB_STATES.setdefault(user_id, {
         "status": "idle",
         "last_started_at": None,
         "last_finished_at": None,
@@ -93,13 +95,13 @@ def save_schedule_config(config: dict) -> None:
         json.dump(config, f, ensure_ascii=False, indent=2)
 
 
-def enqueue_run(job_id: str, trigger: str) -> dict:
-    state = _get_state(job_id)
+def enqueue_run(user_id: str, trigger: str) -> dict:
+    state = _get_state(user_id)
     if state["status"] in ("queued", "running"):
         return {"error": "이미 대기 중이거나 실행 중입니다."}
     state["status"] = "queued"
     state["trigger"] = trigger
-    _RUN_QUEUE.put((job_id, trigger))
+    _RUN_QUEUE.put((user_id, trigger))
     return {"status": "queued"}
 
 
@@ -107,30 +109,30 @@ def trigger_manual_run():
     return enqueue_run(LEGACY_JOB_ID, "manual")
 
 
-def trigger_job_run(job_id: str):
-    return enqueue_run(job_id, "manual")
+def trigger_job_run(user_id: str):
+    return enqueue_run(user_id, "manual")
 
 
-def _execute(job_id: str, trigger: str):
-    state = _get_state(job_id)
+def _execute(user_id: str, trigger: str):
+    state = _get_state(user_id)
     state["status"] = "running"
     state["last_started_at"] = datetime.now().isoformat(timespec="seconds")
     state["last_error"] = None
     try:
         with open(LOG_PATH, "a", encoding="utf-8") as log_file:
-            if job_id == LEGACY_JOB_ID:
+            if user_id == LEGACY_JOB_ID:
                 label = "웹에서 수동 실행" if trigger == "manual" else "예약 실행"
             else:
-                label = f"job:{job_id} " + ("수동 실행" if trigger == "manual" else "예약 실행")
+                label = f"user:{user_id} " + ("수동 실행" if trigger == "manual" else "예약 실행")
             log_file.write(f"\n===== ({label}) {datetime.now()} =====\n")
             with contextlib.redirect_stdout(_TeeWriter(sys.__stdout__, log_file)):
-                if job_id == LEGACY_JOB_ID:
+                if user_id == LEGACY_JOB_ID:
                     pipeline.run_all_children()
                 else:
-                    job = jobs_store.get_job(job_id)
-                    if not job:
-                        raise ValueError(f"job을 찾을 수 없습니다: {job_id}")
-                    pipeline.run_single_job(job)
+                    user = users_store.get_user(user_id)
+                    if not user:
+                        raise ValueError(f"사용자를 찾을 수 없습니다: {user_id}")
+                    pipeline.run_children_for_user(user)
         state["status"] = "success"
     except Exception as e:
         state["status"] = "error"
@@ -141,18 +143,18 @@ def _execute(job_id: str, trigger: str):
 
 def _worker_loop():
     while True:
-        job_id, trigger = _RUN_QUEUE.get()
+        user_id, trigger = _RUN_QUEUE.get()
         try:
-            _execute(job_id, trigger)
+            _execute(user_id, trigger)
         finally:
             _RUN_QUEUE.task_done()
 
 
-def _scheduled_fire(job_id: str):
-    result = enqueue_run(job_id, "schedule")
+def _scheduled_fire(user_id: str):
+    result = enqueue_run(user_id, "schedule")
     if "error" in result:
         with open(LOG_PATH, "a", encoding="utf-8") as log_file:
-            log_file.write(f"\n===== (예약 실행 건너뜀: {job_id} 이미 대기/실행 중) {datetime.now()} =====\n")
+            log_file.write(f"\n===== (예약 실행 건너뜀: {user_id} 이미 대기/실행 중) {datetime.now()} =====\n")
 
 
 def _apply_legacy_jobs(config: dict):
@@ -172,10 +174,10 @@ def _apply_legacy_jobs(config: dict):
         )
 
 
-def register_job_schedule(job: dict):
-    """job 하나의 스케줄 시각들에 맞춰 cron 트리거를 등록한다 (기존 등록은 먼저 제거)."""
-    unregister_job_schedule(job["id"])
-    schedule = job.get("schedule", {})
+def register_user_schedule(user: dict):
+    """사용자 한 명의 공유 스케줄 시각들에 맞춰 cron 트리거를 등록한다 (기존 등록은 먼저 제거)."""
+    unregister_user_schedule(user["id"])
+    schedule = user.get("schedule", {})
     if not schedule.get("enabled", True):
         return
     for t in schedule.get("times", []):
@@ -183,15 +185,15 @@ def register_job_schedule(job: dict):
         _scheduler.add_job(
             _scheduled_fire,
             CronTrigger(hour=int(hour), minute=int(minute)),
-            args=[job["id"]],
-            id=f"job_{job['id']}_{t}",
+            args=[user["id"]],
+            id=f"user_{user['id']}_{t}",
             replace_existing=True,
         )
 
 
-def unregister_job_schedule(job_id: str):
+def unregister_user_schedule(user_id: str):
     for existing in _scheduler.get_jobs():
-        if existing.id.startswith(f"job_{job_id}_"):
+        if existing.id.startswith(f"user_{user_id}_"):
             _scheduler.remove_job(existing.id)
 
 
@@ -214,19 +216,19 @@ def update_schedule(config: dict) -> dict:
     return get_schedule_status()
 
 
-def get_job_next_run(job_id: str) -> str | None:
+def get_user_next_run(user_id: str) -> str | None:
     next_runs = sorted(
         job.next_run_time
         for job in _scheduler.get_jobs()
-        if job.id.startswith(f"job_{job_id}_") and job.next_run_time
+        if job.id.startswith(f"user_{user_id}_") and job.next_run_time
     )
     return next_runs[0].isoformat(timespec="seconds") if next_runs else None
 
 
 def start():
     _apply_legacy_jobs(load_schedule_config())
-    for job in jobs_store.list_jobs():
-        register_job_schedule(job)
+    for user in users_store.list_users():
+        register_user_schedule(user)
     threading.Thread(target=_worker_loop, daemon=True).start()
     _scheduler.start()
 

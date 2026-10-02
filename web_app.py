@@ -6,8 +6,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-import jobs_store
+import kidsnote_discovery
 import scheduler
+import users_store
 
 BASE_DIR = Path(__file__).resolve().parent
 LOG_PATH = BASE_DIR / "run_log.txt"
@@ -76,52 +77,77 @@ def _validate_times(times: list) -> str | None:
     return None
 
 
-@app.get("/api/jobs")
-def list_jobs():
+def _validate_children(children: list) -> str | None:
+    if not children:
+        return "자녀를 하나 이상 추가하세요."
+    for c in children:
+        if not (c.get("child_name") and c.get("school") and c.get("class")):
+            return "자녀마다 이름/기관(학교)/반을 모두 선택해야 합니다."
+    return None
+
+
+@app.get("/api/users")
+def list_users():
     result = []
-    for job in jobs_store.list_jobs():
-        public = jobs_store.public_job(job)
-        public["state"] = scheduler.get_job_state(job["id"])
-        public["next_run_at"] = scheduler.get_job_next_run(job["id"])
+    for user in users_store.list_users():
+        public = users_store.public_user(user)
+        public["state"] = scheduler.get_job_state(user["id"])
+        public["next_run_at"] = scheduler.get_user_next_run(user["id"])
         result.append(public)
     return JSONResponse(result)
 
 
-@app.post("/api/jobs")
-def create_job(payload: dict):
+@app.post("/api/users")
+def create_user(payload: dict):
     kidsnote_id = (payload.get("kidsnote_id") or "").strip()
     kidsnote_pw = payload.get("kidsnote_pw") or ""
-    target_school = (payload.get("target_school") or "").strip()
-    target_class = (payload.get("target_class") or "").strip()
+    children = payload.get("children") or []
     times = payload.get("times") or []
 
-    if not kidsnote_id or not kidsnote_pw or not target_school or not target_class:
-        return JSONResponse({"error": "키즈노트 ID/PW, 학교명, 반 이름을 모두 입력하세요."}, status_code=400)
+    if not kidsnote_id or not kidsnote_pw:
+        return JSONResponse({"error": "키즈노트 ID/PW를 입력하세요."}, status_code=400)
+
+    error = _validate_children(children)
+    if error:
+        return JSONResponse({"error": error}, status_code=400)
 
     error = _validate_times(times)
     if error:
         return JSONResponse({"error": error}, status_code=400)
 
-    job = jobs_store.add_job(kidsnote_id, kidsnote_pw, target_school, target_class, times)
-    scheduler.register_job_schedule(job)
-    return JSONResponse(jobs_store.public_job(job))
+    user = users_store.add_user(kidsnote_id, kidsnote_pw, children, times)
+    scheduler.register_user_schedule(user)
+    return JSONResponse(users_store.public_user(user))
 
 
-@app.delete("/api/jobs/{job_id}")
-def remove_job(job_id: str):
-    scheduler.unregister_job_schedule(job_id)
-    scheduler.JOB_STATES.pop(job_id, None)
-    deleted = jobs_store.delete_job(job_id)
+@app.delete("/api/users/{user_id}")
+def remove_user(user_id: str):
+    scheduler.unregister_user_schedule(user_id)
+    scheduler.JOB_STATES.pop(user_id, None)
+    deleted = users_store.delete_user(user_id)
     if not deleted:
-        return JSONResponse({"error": "해당 job을 찾을 수 없습니다."}, status_code=404)
+        return JSONResponse({"error": "해당 사용자를 찾을 수 없습니다."}, status_code=404)
     return JSONResponse({"status": "deleted"})
 
 
-@app.post("/api/jobs/{job_id}/run")
-def run_job(job_id: str):
-    if not jobs_store.get_job(job_id):
-        return JSONResponse({"error": "해당 job을 찾을 수 없습니다."}, status_code=404)
-    result = scheduler.trigger_job_run(job_id)
+@app.post("/api/users/{user_id}/run")
+def run_user(user_id: str):
+    if not users_store.get_user(user_id):
+        return JSONResponse({"error": "해당 사용자를 찾을 수 없습니다."}, status_code=404)
+    result = scheduler.trigger_job_run(user_id)
     if "error" in result:
         return JSONResponse(result, status_code=409)
     return JSONResponse(result)
+
+
+@app.post("/api/verify-kidsnote")
+def verify_kidsnote(payload: dict):
+    kidsnote_id = (payload.get("kidsnote_id") or "").strip()
+    kidsnote_pw = payload.get("kidsnote_pw") or ""
+    if not kidsnote_id or not kidsnote_pw:
+        return JSONResponse({"error": "키즈노트 ID/PW를 입력하세요."}, status_code=400)
+
+    result = kidsnote_discovery.discover_account(kidsnote_id, kidsnote_pw)
+    if not result.get("ok"):
+        return JSONResponse({"error": result.get("error", "계정 확인에 실패했습니다.")}, status_code=422)
+    return JSONResponse({"children": result["children"]})
