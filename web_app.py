@@ -109,6 +109,9 @@ def create_user(payload: dict):
     if not kidsnote_id or not kidsnote_pw:
         return JSONResponse({"error": "키즈노트 ID/PW를 입력하세요."}, status_code=400)
 
+    if not google_credentials:
+        return JSONResponse({"error": "구글 캘린더 연동을 먼저 완료해야 등록할 수 있습니다."}, status_code=400)
+
     error = _validate_children(children)
     if error:
         return JSONResponse({"error": error}, status_code=400)

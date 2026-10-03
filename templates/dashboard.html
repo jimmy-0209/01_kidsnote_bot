@@ -96,6 +96,13 @@
                  disabled:opacity-60 disabled:pointer-events-none disabled:hover:scale-100">
           계정 인증
         </button>
+        <div class="flex items-center justify-end flex-wrap gap-x-2 gap-y-1 text-sm">
+          <a href="https://www.kidsnote.com/account/find-username" target="_blank" rel="noopener noreferrer"
+            class="text-gray-400 transition-colors duration-150 hover:text-brand-600">아이디 찾기</a>
+          <span class="text-gray-300">|</span>
+          <a href="https://www.kidsnote.com/account/find-password" target="_blank" rel="noopener noreferrer"
+            class="text-gray-400 transition-colors duration-150 hover:text-brand-600">비밀번호 찾기</a>
+        </div>
         <p class="text-xs text-slate-400">키즈노트에 로그인해 자녀/기관 정보를 불러옵니다. 자녀 수에 따라 최대 1분 정도 걸릴 수 있어요.</p>
       </div>
 
@@ -123,9 +130,12 @@
 
         <div>
           <p class="text-xs font-semibold text-slate-500 mb-2">공유 스케줄 시각 (이 계정에 등록하는 모든 자녀에 공통 적용)</p>
-          <div class="flex gap-2">
-            <input type="text" id="jobTimeInput" placeholder="HH:MM"
-              class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+          <div class="flex gap-2 items-center">
+            <select id="jobTimeHour"
+              class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
+            <span class="text-slate-400 font-semibold">:</span>
+            <select id="jobTimeMinute"
+              class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
             <button type="button" onclick="addTimeChip()"
               class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
               시각 추가
@@ -178,12 +188,13 @@
 
         <div id="pendingChildrenList" class="space-y-2"></div>
 
-        <button id="submitWizardBtn" onclick="submitWizardRegistration()"
+        <button id="submitWizardBtn" onclick="submitWizardRegistration()" disabled
           class="w-full px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold shadow-md shadow-emerald-600/30
                  transition-all duration-150 hover:bg-emerald-700 hover:scale-[1.02] active:scale-95
                  disabled:opacity-50 disabled:pointer-events-none disabled:hover:scale-100">
           등록 완료
         </button>
+        <p id="submitWizardHint" class="text-xs text-amber-600 text-center">⚠️ 구글 캘린더 연동을 먼저 완료해야 등록할 수 있습니다.</p>
       </div>
     </section>
 
@@ -275,9 +286,12 @@
 
       <div class="mt-5">
         <p class="text-xs font-semibold text-slate-500 mb-2">스케줄 시각</p>
-        <div class="flex gap-2">
-          <input type="text" id="editTimeInput" placeholder="HH:MM"
-            class="w-28 px-4 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+        <div class="flex gap-2 items-center">
+          <select id="editTimeHour"
+            class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
+          <span class="text-slate-400 font-semibold">:</span>
+          <select id="editTimeMinute"
+            class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
           <button type="button" onclick="addEditTimeChip()"
             class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
             시각 추가
@@ -362,15 +376,16 @@ function renderTimeChips() {
   });
 }
 
+function populateTimeSelect(selectEl, max) {
+  selectEl.innerHTML = Array.from({ length: max }, (_, i) => {
+    const v = String(i).padStart(2, "0");
+    return `<option value="${v}">${v}</option>`;
+  }).join("");
+}
+
 function addTimeChip() {
-  const input = document.getElementById("jobTimeInput");
-  const t = input.value.trim();
-  if (!/^\d{1,2}:\d{2}$/.test(t)) {
-    alert("HH:MM 형식으로 입력하세요 (예: 09:00)");
-    return;
-  }
-  pendingTimes.push(t);
-  input.value = "";
+  const t = `${document.getElementById("jobTimeHour").value}:${document.getElementById("jobTimeMinute").value}`;
+  if (!pendingTimes.includes(t)) pendingTimes.push(t);
   renderTimeChips();
 }
 
@@ -477,13 +492,19 @@ function resetWizard() {
 function updateGoogleAuthStatus() {
   const label = el("googleAuthStatus");
   const btn = el("googleAuthBtn");
+  const submitBtn = el("submitWizardBtn");
+  const submitHint = el("submitWizardHint");
   if (wizardGoogleCredentials) {
     label.textContent = "✅ 연동 완료";
     label.className = "text-xs text-emerald-600 mt-0.5";
     btn.textContent = "다시 연동";
+    submitBtn.disabled = false;
+    submitHint.classList.add("hidden");
   } else {
     label.textContent = "아직 연동되지 않았습니다.";
     label.className = "text-xs text-slate-400 mt-0.5";
+    submitBtn.disabled = true;
+    submitHint.classList.remove("hidden");
     btn.textContent = "구글 캘린더 연동하기";
   }
 }
@@ -506,29 +527,49 @@ function confirmGoogleAuthModal() {
 
 function connectGoogleCalendar() {
   const state = (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`).replace(/-/g, "");
-  window.open(`/api/auth/google/login?state=${state}`, "googleAuth", "width=500,height=650");
+  const popup = window.open(`/api/auth/google/login?state=${state}`, "googleAuth", "width=500,height=650");
 
   if (googlePollTimer) clearInterval(googlePollTimer);
   const btn = el("googleAuthBtn");
+
+  if (!popup) {
+    alert("팝업이 차단된 것 같습니다. 브라우저의 팝업 차단을 해제한 뒤 다시 시도해 주세요.");
+    return;
+  }
+
   btn.disabled = true;
   el("googleAuthStatus").textContent = "브라우저 창에서 구글 로그인을 완료해 주세요...";
 
   let elapsed = 0;
   googlePollTimer = setInterval(async () => {
     elapsed += 2000;
-    if (elapsed > 3 * 60 * 1000) {
+
+    // 사용자가 로그인을 끝내지 않고 팝업을 그냥 닫아버린 경우, 3분 타임아웃을
+    // 기다리지 않고 즉시 버튼을 되살려서 바로 재시도할 수 있게 한다.
+    if (popup.closed) {
       clearInterval(googlePollTimer);
       googlePollTimer = null;
       btn.disabled = false;
       updateGoogleAuthStatus();
       return;
     }
+
+    if (elapsed > 3 * 60 * 1000) {
+      clearInterval(googlePollTimer);
+      googlePollTimer = null;
+      popup.close();
+      btn.disabled = false;
+      updateGoogleAuthStatus();
+      return;
+    }
+
     const res = await fetch(`/api/auth/google/status/${state}?consume=true`);
     const data = await res.json();
     if (data.ready) {
       clearInterval(googlePollTimer);
       googlePollTimer = null;
       wizardGoogleCredentials = data.credentials;
+      popup.close();
       btn.disabled = false;
       updateGoogleAuthStatus();
     }
@@ -670,6 +711,10 @@ function renderPendingChildrenList() {
 }
 
 async function submitWizardRegistration() {
+  if (!wizardGoogleCredentials) {
+    alert("구글 캘린더 연동을 먼저 완료해야 등록할 수 있습니다.");
+    return;
+  }
   if (!wizardPendingChildren.length) {
     alert("등록할 자녀를 하나 이상 추가하세요.");
     return;
@@ -747,14 +792,8 @@ function renderEditTimeChips() {
 }
 
 function addEditTimeChip() {
-  const input = el("editTimeInput");
-  const t = input.value.trim();
-  if (!/^\d{1,2}:\d{2}$/.test(t)) {
-    alert("HH:MM 형식으로 입력하세요 (예: 09:00)");
-    return;
-  }
+  const t = `${el("editTimeHour").value}:${el("editTimeMinute").value}`;
   if (!editTimes.includes(t)) editTimes.push(t);
-  input.value = "";
   renderEditTimeChips();
 }
 
@@ -936,6 +975,11 @@ async function refreshUsers() {
 
   knownUserIds = currentIds;
 }
+
+populateTimeSelect(el("jobTimeHour"), 24);
+populateTimeSelect(el("jobTimeMinute"), 60);
+populateTimeSelect(el("editTimeHour"), 24);
+populateTimeSelect(el("editTimeMinute"), 60);
 
 refreshLogs();
 refreshUsers();

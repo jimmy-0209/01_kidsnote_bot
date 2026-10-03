@@ -1,7 +1,13 @@
 import os
 import uuid
 
+from dotenv import load_dotenv
 from google_auth_oauthlib.flow import Flow
+
+# pipeline.py도 자체적으로 load_dotenv()를 호출하지만, import 순서에 따라
+# 이 모듈이 먼저 로드될 수 있으므로 여기서도 독립적으로 호출한다
+# (여러 번 호출해도 안전함).
+load_dotenv()
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
