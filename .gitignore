@@ -16,3 +16,6 @@ notice_web_img_*.jpg
 
 # 실행 로그 (실제 자녀 이름/기관명 등 개인정보가 포함될 수 있음)
 run_log.txt
+
+# 로컬 AI 도구(Claude Code) 세션 상태 - 공개 저장소에 둘 필요 없음
+.claude/
