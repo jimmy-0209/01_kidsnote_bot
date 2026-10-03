@@ -1,12 +1,15 @@
 import os
+from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
+load_dotenv()
+
 # ================= [설정 유지] =================
 SCOPES = ['https://www.googleapis.com/auth/calendar']
-TARGET_SCHOOL = "한별유치원"
+TARGET_SCHOOL = os.getenv("TARGET_SCHOOL")
 
 def delete_next_week_events():
     # 1. 기존 인증 토큰 재활용

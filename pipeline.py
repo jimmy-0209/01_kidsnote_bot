@@ -30,7 +30,7 @@ CHILD_NAME_1 = os.getenv("CHILD_NAME_1") # 첫째 이름 (아이 전환 드롭�
 CHILD_NAME_2 = os.getenv("CHILD_NAME_2") # 둘째 이름 (드롭다운에서 선택)
 
 # 관리 대상 아이 목록 (첫째, 둘째 순서로 순차 처리)
-# 첫째는 로그인 시 기본으로 활성화되어 있으므로 기관(청솔어린이집→한별유치원) 드롭다운만 전환하면 되고,
+# 첫째는 로그인 시 기본으로 활성화되어 있으므로 기관(예: A기관→B기관) 드롭다운만 전환하면 되고,
 # 둘째는 별도 아이 프로필이므로 이름 드롭다운(CHILD_NAME_1 → CHILD_NAME_2)으로 먼저 전환해야 함
 CHILDREN = [
     {"default_child": DEFAULT_CHILD, "target_school": TARGET_SCHOOL, "target_class": TARGET_CLASS,
@@ -119,7 +119,7 @@ def _scrape_notices(page, target_keywords, days_back=7):
             extracted_data.append({"type": "image", "content": img_path})
             print(f"  > 🖼️ {idx+1}번째 글: PDF를 이미지로 변환 완료")
         else:
-            # 다운로드 버튼이 없는 공지(예: 아이꿈어린이집): 웹페이지에 노출된
+            # 다운로드 버튼이 없는 공지(일부 기관): 웹페이지에 노출된
             # 본문 텍스트와 첨부 이미지를 그대로 읽어서 분석 대상에 추가한다
 
             # CSS 클래스가 배포마다 해시로 바뀌어 불안정하므로,
@@ -253,7 +253,7 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
     else:
         existing_list_text = "(없음)"
 
-    # [핵심 변경] 프롬프트 튜닝 (기쁨2반 생일 제한, 자유복 제외, 병합 지시)
+    # [핵심 변경] 프롬프트 튜닝 (대상 학급 생일 제한, 자유복 제외, 병합 지시)
     prompt = f"""
     당신은 유치원 공지사항(여러 개의 주간계획안, 가정통신문 등)을 종합적으로 분석하여 '학부모가 반드시 챙겨야 할 핵심 정보'만 캘린더 일정으로 추출하는 깐깐한 AI 비서입니다.
     여러 문서의 내용을 한 번에 파악하여 중복되거나 불필요한 일정을 걸러내는 것이 당신의 최우선 목표입니다.

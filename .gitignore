@@ -13,3 +13,6 @@ users_config.json
 # 런타임 생성 이미지 (알림/공지 캡처본)
 notice_img_*.png
 notice_web_img_*.jpg
+
+# 실행 로그 (실제 자녀 이름/기관명 등 개인정보가 포함될 수 있음)
+run_log.txt
