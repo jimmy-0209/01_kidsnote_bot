@@ -1,19 +1,20 @@
-import contextlib
 import json
 import queue
-import sys
-import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
-import pipeline
+import run_history_store
 import users_store
 
+# 이 모듈은 pipeline.py(Playwright, PyMuPDF 등 무거운 의존성)를 절대 import하지
+# 않는다 — web_app.py가 이 모듈을 쓰는데, Vercel로 옮겨질 예정이라 그쪽에서 Playwright
+# 바이너리를 번들링하면 배포 크기 제한에 걸린다. 실제 실행 로직(pipeline 호출)은
+# worker.py에만 있고, 여기 있는 _RUN_QUEUE는 worker.py가 직접 꺼내 쓴다.
 BASE_DIR = Path(__file__).resolve().parent
-LOG_PATH = BASE_DIR / "run_log.txt"
 SCHEDULE_CONFIG_PATH = BASE_DIR / "schedule_config.json"
 
 LEGACY_JOB_ID = "legacy"
@@ -22,62 +23,24 @@ LEGACY_JOB_ID = "legacy"
 # 자동 실행 경로가 되었으므로, 항상 활성화된 상태를 기본값으로 한다.
 DEFAULT_SCHEDULE = {"enabled": True, "times": ["21:00"]}
 
-# 실행 요청을 순서대로 처리하는 큐 + 워커 스레드 1개.
+# 실행 요청을 순서대로 처리하는 큐 + 워커 스레드 1개 (이 프로세스, 즉 worker.py 안에서만 쓰임).
 # 여러 사용자의 스케줄이 같은 시각에 겹치더라도 Playwright 브라우저가
 # 동시에 여러 개 뜨지 않도록 항상 하나씩만(FIFO) 처리한다.
-_RUN_QUEUE: "queue.Queue[tuple[str, str]]" = queue.Queue()
-
-# user_id -> {status, last_started_at, last_finished_at, last_error, trigger}
-# status: idle | queued | running | success | error
-# legacy(.env 기반 단일 사용자 흐름)는 LEGACY_JOB_ID 키로 관리한다.
-# 다중 자녀 사용자는 실행 단위가 "사용자 1명(= 자녀 여러 명을 한 세션에서 순회)"이므로
-# 상태도 자녀별이 아니라 사용자(user_id)별로 관리한다.
-JOB_STATES: dict[str, dict] = {
-    LEGACY_JOB_ID: {
-        "status": "idle",
-        "last_started_at": None,
-        "last_finished_at": None,
-        "last_error": None,
-        "trigger": None,
-    }
-}
+_RUN_QUEUE: "queue.Queue[tuple[str, str, str]]" = queue.Queue()
 
 _scheduler = BackgroundScheduler(daemon=True)
 
 
-class _TeeWriter:
-    """print() 출력을 콘솔과 run_log.txt 양쪽에 동시에 기록한다.
-
-    CLI 실행(run_kidsnote_bot.bat)은 이미 쉘 리다이렉션(`>> run_log.txt`)으로
-    로그를 남기므로 pipeline.py 자체는 건드리지 않는다. 반면 웹/스케줄러로
-    트리거한 실행은 그런 리다이렉션이 없으므로, 여기서만 run_log.txt에 이어쓰기 해
-    대시보드가 어느 경로로 실행됐든 같은 로그 파일을 그대로 보여주게 한다.
-    """
-
-    def __init__(self, *streams):
-        self._streams = streams
-
-    def write(self, data):
-        for s in self._streams:
-            s.write(data)
-
-    def flush(self):
-        for s in self._streams:
-            s.flush()
-
-
 def get_job_state(user_id: str) -> dict:
-    return _get_state(user_id)
+    return run_history_store.get_current_state(user_id)
 
 
-def _get_state(user_id: str) -> dict:
-    return JOB_STATES.setdefault(user_id, {
-        "status": "idle",
-        "last_started_at": None,
-        "last_finished_at": None,
-        "last_error": None,
-        "trigger": None,
-    })
+def trigger_manual_run() -> dict:
+    return run_history_store.request_run(LEGACY_JOB_ID, "manual")
+
+
+def trigger_job_run(user_id: str) -> dict:
+    return run_history_store.request_run(user_id, "manual")
 
 
 def load_schedule_config() -> dict:
@@ -87,71 +50,41 @@ def load_schedule_config() -> dict:
         return json.load(f)
 
 
-def save_schedule_config(config: dict) -> None:
-    with open(SCHEDULE_CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(config, f, ensure_ascii=False, indent=2)
+def compute_next_run(times: list[str]) -> str | None:
+    """APScheduler 라이브 인스턴스를 들여다보지 않고 times(["HH:MM", ...])만으로
+    다음 실행 시각을 계산한다 — 이래야 워커의 스케줄러 인스턴스를 갖고 있지 않은
+    웹 프로세스(Phase 5 분리 이후)에서도 "다음 실행" 표시가 가능하다.
+    """
+    if not times:
+        return None
+    now = datetime.now()
+    candidates = []
+    for t in times:
+        hour, _, minute = t.partition(":")
+        candidate = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        candidates.append(candidate)
+    return min(candidates).isoformat(timespec="seconds") + "+09:00"
 
 
-def enqueue_run(user_id: str, trigger: str) -> dict:
-    state = _get_state(user_id)
-    if state["status"] in ("queued", "running"):
-        return {"error": "이미 대기 중이거나 실행 중입니다."}
-    state["status"] = "queued"
-    state["trigger"] = trigger
-    _RUN_QUEUE.put((user_id, trigger))
-    return {"status": "queued"}
-
-
-def trigger_manual_run():
-    return enqueue_run(LEGACY_JOB_ID, "manual")
-
-
-def trigger_job_run(user_id: str):
-    return enqueue_run(user_id, "manual")
-
-
-def _execute(user_id: str, trigger: str):
-    state = _get_state(user_id)
-    state["status"] = "running"
-    state["last_started_at"] = datetime.now().isoformat(timespec="seconds")
-    state["last_error"] = None
-    try:
-        with open(LOG_PATH, "a", encoding="utf-8") as log_file:
-            if user_id == LEGACY_JOB_ID:
-                label = "웹에서 수동 실행" if trigger == "manual" else "예약 실행"
-            else:
-                label = f"user:{user_id} " + ("수동 실행" if trigger == "manual" else "예약 실행")
-            log_file.write(f"\n===== ({label}) {datetime.now()} =====\n")
-            with contextlib.redirect_stdout(_TeeWriter(sys.__stdout__, log_file)):
-                if user_id == LEGACY_JOB_ID:
-                    pipeline.run_all_children()
-                else:
-                    user = users_store.get_user(user_id)
-                    if not user:
-                        raise ValueError(f"사용자를 찾을 수 없습니다: {user_id}")
-                    pipeline.run_children_for_user(user)
-        state["status"] = "success"
-    except Exception as e:
-        state["status"] = "error"
-        state["last_error"] = str(e)
-    finally:
-        state["last_finished_at"] = datetime.now().isoformat(timespec="seconds")
-
-
-def _worker_loop():
-    while True:
-        user_id, trigger = _RUN_QUEUE.get()
-        try:
-            _execute(user_id, trigger)
-        finally:
-            _RUN_QUEUE.task_done()
+def _poll_queued():
+    """DynamoDB에 쌓인 '대기' 요청(웹 대시보드에서 올린 수동 실행 포함)을 찾아
+    로컬 실행 큐에 넣는다. 웹 프로세스와 워커 프로세스가 분리되어 있어도 이
+    폴링이 둘을 연결하는 유일한 통로다.
+    """
+    for item in run_history_store.list_queued():
+        user_id = item["user_id"]
+        started_at = item["started_at"]
+        trigger = item.get("trigger", "manual")
+        run_history_store.mark_running(user_id, started_at)
+        _RUN_QUEUE.put((user_id, trigger, started_at))
 
 
 def _scheduled_fire(user_id: str):
-    result = enqueue_run(user_id, "schedule")
+    result = run_history_store.request_run(user_id, "schedule")
     if "error" in result:
-        with open(LOG_PATH, "a", encoding="utf-8") as log_file:
-            log_file.write(f"\n===== (예약 실행 건너뜀: {user_id} 이미 대기/실행 중) {datetime.now()} =====\n")
+        print(f"\n===== (예약 실행 건너뜀: {user_id} 이미 대기/실행 중) {datetime.now()} =====")
 
 
 def _apply_legacy_jobs(config: dict):
@@ -194,39 +127,46 @@ def unregister_user_schedule(user_id: str):
             _scheduler.remove_job(existing.id)
 
 
-def get_schedule_status() -> dict:
-    config = load_schedule_config()
-    next_runs = sorted(
-        job.next_run_time
-        for job in _scheduler.get_jobs()
-        if job.id.startswith("legacy_") and job.next_run_time
-    )
-    return {
-        **config,
-        "next_run_at": next_runs[0].isoformat(timespec="seconds") if next_runs else None,
-    }
+def _resync_schedules():
+    """DynamoDB/schedule_config.json 기준으로 cron 등록을 주기적으로 다시 맞춘다.
 
+    Phase 5로 웹 프로세스와 워커 프로세스가 분리된 뒤로는 사용자 등록/수정/삭제가
+    이 워커가 아닌 다른 프로세스(웹 대시보드, 나중엔 Vercel)에서 일어나므로,
+    웹 쪽이 register_user_schedule을 직접 호출할 수 없다. 대신 이 워커가 주기적으로
+    DB를 다시 읽어 cron 목록을 맞춘다 — 최악의 경우 반영까지 이 주기만큼 지연된다.
+    """
+    _apply_legacy_jobs(load_schedule_config())
 
-def update_schedule(config: dict) -> dict:
-    save_schedule_config(config)
-    _apply_legacy_jobs(config)
-    return get_schedule_status()
+    users = users_store.list_users()
+    current_ids = {u["id"] for u in users}
+    for user in users:
+        register_user_schedule(user)
+
+    for job in _scheduler.get_jobs():
+        if job.id.startswith("user_"):
+            job_user_id = job.id.split("_")[1]
+            if job_user_id not in current_ids:
+                _scheduler.remove_job(job.id)
 
 
 def get_user_next_run(user_id: str) -> str | None:
-    next_runs = sorted(
-        job.next_run_time
-        for job in _scheduler.get_jobs()
-        if job.id.startswith(f"user_{user_id}_") and job.next_run_time
-    )
-    return next_runs[0].isoformat(timespec="seconds") if next_runs else None
+    user = users_store.get_user(user_id)
+    if not user or not user.get("schedule", {}).get("enabled", True):
+        return None
+    return compute_next_run(user["schedule"].get("times", []))
 
 
 def start():
-    _apply_legacy_jobs(load_schedule_config())
-    for user in users_store.list_users():
-        register_user_schedule(user)
-    threading.Thread(target=_worker_loop, daemon=True).start()
+    """워커 프로세스(worker.py)에서만 호출해야 한다 — 웹 프로세스에서 호출하면
+    사용자 CRUD가 이 프로세스가 아닌 워커 프로세스의 스케줄러에 반영돼야 하는데
+    실제로는 반영되지 않아 두 프로세스의 스케줄 상태가 어긋난다.
+
+    실제 작업 실행 스레드(_RUN_QUEUE를 꺼내 pipeline을 호출하는 쪽)는 worker.py가
+    이 함수 호출 전에 따로 띄운다 — 여기서는 cron 등록과 큐에 채워넣는 폴링만 한다.
+    """
+    _resync_schedules()
+    _scheduler.add_job(_poll_queued, IntervalTrigger(seconds=10), id="poll_queued", replace_existing=True)
+    _scheduler.add_job(_resync_schedules, IntervalTrigger(seconds=60), id="resync_schedules", replace_existing=True)
     _scheduler.start()
 
 

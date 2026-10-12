@@ -50,7 +50,7 @@ DEFAULT_KEYWORDS = ["계획안", "가정통신문", "취소", "연기", "변경"
 INSTITUTION_CONTAINER_SELECTOR = '[data-testid="center-sidebar-menu-select"]'
 
 
-def _scrape_notices(page, target_keywords, days_back=7):
+def _scrape_notices(page, target_keywords, days_back=14):
     """현재 로그인/자녀/기관 전환이 끝난 page에서 target_keywords에 매칭되는
     최근 공지를 찾아 이미지/텍스트로 추출한다. get_kidsnote_data(레거시 단일 계정)와
     run_children_for_user(다중 자녀 JSON) 양쪽에서 동일하게 재사용한다.
@@ -82,13 +82,13 @@ def _scrape_notices(page, target_keywords, days_back=7):
     cards = page.locator('div[data-testid*="notice-card-type-item"]')
     target_indices = []
 
-    seven_days_ago = datetime.now() - timedelta(days=days_back)
+    cutoff_date = datetime.now() - timedelta(days=days_back)
 
     for i in range(min(cards.count(), 10)):
         card_text = cards.nth(i).inner_text()
         if any(kw in card_text for kw in target_keywords):
             match = re.search(r"(202\d)[\.\-년\s]+(\d{1,2})[\.\-월\s]+(\d{1,2})", card_text)
-            if match and datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))) < seven_days_ago:
+            if match and datetime(int(match.group(1)), int(match.group(2)), int(match.group(3))) < cutoff_date:
                 continue
             target_indices.append(i)
             print(f"  > ✔️ [대상 확인] {card_text.splitlines()[0][:20]}")
@@ -161,7 +161,7 @@ def _scrape_notices(page, target_keywords, days_back=7):
     return extracted_data
 
 
-def get_kidsnote_data(kidsnote_id, kidsnote_pw, default_child, target_school, switch_from_name=None, switch_to_name=None, days_back=7):
+def get_kidsnote_data(kidsnote_id, kidsnote_pw, default_child, target_school, switch_from_name=None, switch_to_name=None, days_back=14):
     print("▶ 1. 스크래핑 시작...")
     p = sync_playwright().start()
     browser = p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
@@ -260,7 +260,7 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
 
     [추출 범위 및 중복 제거 지침 - 최우선]
     1. 여러 문서(주간계획안, 가정통신문 등)에 걸쳐 동일한 날짜, 동일한 내용의 행사가 중복 안내된 경우, 절대 여러 개의 일정으로 나누지 말고 **내용을 완벽히 병합(Merge)하여 단 1개의 일정으로만** 만드세요.
-    2. 현재 관리 대상 학급은 **'{target_class}'** 입니다. '{target_class}'에 명확히 해당되는 내용만 필터링하세요.
+    2. 현재 관리 대상 학급은 **'{target_class}'** 입니다. '{target_class}'에 명확히 해당되는 내용만 필터링하세요. **문서(특히 졸업사진 촬영, 수료식, 현장학습, 행사 등 반별로 대상이 달라질 수 있는 공지)에 '{target_class}'가 아닌 다른 반/연령/그룹 이름(예: 희망반, 소망반, 7세반 등)이 대상으로 명시되어 있다면, 내용이 아무리 중요해 보여도 반드시 전체를 제외하세요.** 특히 대상 범위가 본문 중간이나 각주, 소제목에 작게 적혀 있는 경우가 많으니 문서 전체를 꼼꼼히 확인하세요. 대상 반/연령이 전혀 언급되지 않았다면(전체 공지로 보이면) 추출해도 됩니다.
     3. **취소/연기/변경 공지 처리:** 새 문서가 우천, 사정 등의 이유로 **아래 [기존 등록된 일정] 목록에 있는 항목을 취소하거나 연기하거나 변경**한다는 내용이라면, 절대 무시하지 말고 반드시 일정으로 추출하세요. 이때 title은 **아래 목록에 있는 해당 항목의 title과 완전히 동일한 문자열 앞에 "[취소] "를 그대로 붙인 문자열**로 만드세요 (예: 목록의 title이 "숲 체험학습"이면 새 title은 "[취소] 숲 체험학습"). **date는 반드시 취소된 행사 자체가 원래 열릴 예정이었던 날짜**로 작성하세요 — **공지가 게시/작성된 날짜가 아닙니다.** (예: "8월 31일에, 9월 1일 예정이었던 숲 체험학습이 우천으로 취소되었다"는 공지라면, date는 공지 게시일인 8월 31일이 아니라 **행사 원래 날짜인 2026-09-01**이어야 합니다.) description에는 **취소/연기/변경된 사유와 대체 일정 유무 등 안내된 상세 내용**을 반드시 작성하세요.
 
     [기존 등록된 일정 - 중복 방지 및 취소 처리용 참고자료]
@@ -272,12 +272,16 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
     2. **복장 필터링:** '자유복', '원복' 등 일상적인 복장은 캘린더를 지저분하게 하므로 **절대 추출 대상에 포함하지 마세요.** '체육복', '수영복', '숲체험복' 등 특별히 챙겨야 하는 복장만 추출하세요.
     3. '특별한 준비물', '부모 참여 행사', '기한이 있는 과제' 등 학부모의 실제 Action이 필요한 항목만 추출하세요. 일상적인 수업 내용(놀이, 활동 등)은 철저히 무시하세요.
     4. 날짜(date)는 무조건 'YYYY-MM-DD' format으로만 작성하세요. 연도가 없으면 2026년으로 간주합니다.
+    5. 공지에 특정 대상 반/연령이 명시되어 있다면(생일자 안내 포함), description 끝에 그 대상을 "(대상: OO반)" 형식으로 반드시 덧붙이세요. '{target_class}'를 대상으로 한 번 더 확인하는 데 쓰입니다.
 
     출력은 반드시 아래 JSON 배열 형식으로만 작성하고 다른 말은 절대 금지.
     [
       {{"date": "YYYY-MM-DD", "title": "핵심 행사명 또는 준비물 안내", "description": "종합된 상세 준비물 및 학부모 필수 확인 사항"}}
     ]
     """
+
+    # 실행 이력(run_history)에 기록할, 실제로 캘린더에 반영된 일정 목록
+    registered: list[dict] = []
 
     # [핵심 변경] 모든 문서를 하나의 컨텍스트로 묶어서 API에 1번만 전송
     contents_to_analyze = [prompt]
@@ -383,6 +387,8 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
                     service.events().insert(calendarId='primary', body=event_body).execute()
                     print(f"    ✔️ 구글 캘린더 신규 등록 완료: {ev['title']} ({target_date})")
 
+                registered.append({"title": ev['title'], "date": target_date})
+
             time.sleep(15)
             break
 
@@ -402,6 +408,8 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
                 print(f"    ❌ 분석/등록 오류: {e}")
                 break
 
+    return registered
+
 
 def run_all_children():
     """CHILDREN 목록을 순서대로 처리하는 전체 파이프라인.
@@ -411,9 +419,11 @@ def run_all_children():
     브라우저/Playwright 정리(finally)도 그대로 포함되어 있어, 웹에서 트리거해도
     좀비 프로세스 없이 정상 종료된다.
     """
+    results = []
     for child in CHILDREN:
         b, p = None, None
         print(f"\n===== ▶ [{child['target_school']}] 처리 시작 =====")
+        entry = {"label": child["target_school"], "registered": [], "error": None}
         try:
             data_list, b, p = get_kidsnote_data(
                 KIDSNOTE_ID, KIDSNOTE_PW,
@@ -421,16 +431,19 @@ def run_all_children():
                 child["switch_from_name"], child["switch_to_name"]
             )
             if data_list:
-                analyze_and_calendar(data_list, child["target_school"], child["target_class"])
+                entry["registered"] = analyze_and_calendar(data_list, child["target_school"], child["target_class"]) or []
             else:
                 print(f"\n⚠️ [{child['target_school']}] 조건에 맞는 공지사항이 없습니다.")
         except Exception as e:
             print(f"\n❌ [{child['target_school']}] 프로그램 실행 오류: {e}")
+            entry["error"] = str(e)
         finally:
             if b: b.close()
             if p: p.stop()
+        results.append(entry)
 
     print("\n✅ 모든 작업이 완벽하게 완료되었습니다!")
+    return results
 
 
 def _select_institution(page, child: dict):
@@ -475,6 +488,7 @@ def run_children_for_user(user: dict):
     kidsnote_pw = user["kidsnote_pw"]
     children = user["children"]
 
+    results = []
     p = sync_playwright().start()
     browser = p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
     page = browser.new_context(viewport={'width': 1200, 'height': 900}).new_page()
@@ -487,6 +501,7 @@ def run_children_for_user(user: dict):
 
         for index, child in enumerate(children):
             print(f"\n===== ▶ [{child['child_name']} / {child['school']}] 처리 시작 (index={index}) =====")
+            entry = {"label": f"{child['child_name']}/{child['school']}", "registered": [], "error": None}
             try:
                 if index > 0:
                     # 둘째 이상: 이름 전환 드롭다운을 먼저 거쳐 자녀 프로필 자체를 전환
@@ -501,11 +516,15 @@ def run_children_for_user(user: dict):
                 target_keywords = child.get("keywords") or DEFAULT_KEYWORDS
                 data_list = _scrape_notices(page, target_keywords)
                 if data_list:
-                    analyze_and_calendar(data_list, child["school"], child["class"], user.get("google_credentials"))
+                    entry["registered"] = analyze_and_calendar(data_list, child["school"], child["class"], user.get("google_credentials")) or []
                 else:
                     print(f"\n⚠️ [{child['child_name']}] 조건에 맞는 공지사항이 없습니다.")
             except Exception as e:
                 print(f"\n❌ [{child['child_name']}] 처리 오류: {e}")
+                entry["error"] = str(e)
+            results.append(entry)
     finally:
         browser.close()
         p.stop()
+
+    return results

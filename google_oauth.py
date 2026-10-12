@@ -19,6 +19,13 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # /api/users 등록(2단계)에서 실제로 꺼내 쓰면 바로 비워낸다.
 _PENDING: dict[str, dict | None] = {}
 
+# state 토큰 -> 아직 토큰 교환 전인 Flow 인스턴스.
+# google-auth-oauthlib는 authorization_url() 호출 시 PKCE code_verifier를
+# 해당 Flow 객체 안에 생성해 둔다. 콜백에서 fetch_token()을 호출할 때 이
+# code_verifier가 그대로 필요하므로, 새 Flow를 또 만들지 말고 반드시
+# 이 "같은" 인스턴스를 재사용해야 한다(그렇지 않으면 "Missing code verifier" 오류 발생).
+_FLOWS: dict[str, Flow] = {}
+
 
 def is_configured() -> bool:
     return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
@@ -53,14 +60,23 @@ def create_auth_url(redirect_uri: str, state: str | None = None) -> dict:
         state=state,
     )
     _PENDING[state] = None
+    _FLOWS[state] = flow
     return {"auth_url": auth_url, "state": state}
 
 
 def exchange_code(state: str, code: str, redirect_uri: str) -> bool:
-    """콜백에서 받은 code를 토큰으로 교환해 _PENDING[state]에 저장한다."""
+    """콜백에서 받은 code를 토큰으로 교환해 _PENDING[state]에 저장한다.
+
+    create_auth_url()에서 만들어 둔 "같은" Flow 인스턴스를 재사용해야
+    PKCE code_verifier가 유지된다 — 여기서 새로 _build_flow()를 호출하면
+    code_verifier가 없는 깨끗한 Flow가 생겨 구글 쪽에서 invalid_grant
+    (Missing code verifier) 오류를 반환한다.
+    """
     if state not in _PENDING:
         return False
-    flow = _build_flow(redirect_uri)
+    flow = _FLOWS.pop(state, None)
+    if flow is None:
+        flow = _build_flow(redirect_uri)
     flow.fetch_token(code=code)
     creds = flow.credentials
     _PENDING[state] = {
