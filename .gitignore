@@ -19,3 +19,6 @@ run_log.txt
 
 # 로컬 AI 도구(Claude Code) 세션 상태 - 공개 저장소에 둘 필요 없음
 .claude/
+
+.vercel
+.env*

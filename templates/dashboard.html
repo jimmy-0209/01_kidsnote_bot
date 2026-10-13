@@ -70,7 +70,10 @@
       <h1 class="text-2xl font-bold tracking-tight text-slate-900">KidsnoteBot <span class="text-brand-600">대시보드</span></h1>
       <p class="text-sm text-slate-500 mt-1">키즈노트 공지사항 스크래핑 · Gemini 분석 · 구글 캘린더 동기화</p>
     </div>
-    <div id="authWidget" class="shrink-0"></div>
+    <div class="flex items-center gap-3 shrink-0">
+      <span id="workerStatusBadge"></span>
+      <div id="authWidget"></div>
+    </div>
   </header>
 
   <!-- 서비스 소개 (로그아웃 상태에서만 노출, 맨 아래에 카카오 로그인 CTA) -->
@@ -405,6 +408,23 @@ async function kakaoLogout() {
 }
 
 let isLoggedIn = false;
+let workerOnline = false;
+
+async function refreshWorkerStatus() {
+  try {
+    const res = await fetch("/api/worker-status");
+    const data = await res.json();
+    workerOnline = !!data.online;
+    const badge = document.getElementById("workerStatusBadge");
+    badge.innerHTML = workerOnline
+      ? `<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-600"><span class="w-2 h-2 rounded-full bg-emerald-500"></span>PC 워커 켜짐</span>`
+      : `<span class="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-500"><span class="w-2 h-2 rounded-full bg-rose-500"></span>PC 워커 꺼짐</span>`;
+  } catch (e) {
+    workerOnline = false;
+  }
+  // 버튼의 disabled 상태가 workerOnline에 의존하므로 즉시 다시 그린다.
+  refreshUsers();
+}
 
 async function claimLegacyAccount() {
   const res = await fetch("/api/claim-legacy", { method: "POST" });
@@ -1121,7 +1141,8 @@ async function refreshUsers() {
           </div>
           <div class="flex items-center gap-3">
             <span class="text-xs text-slate-400">${(user.schedule.times || []).join(", ")} · 다음 실행: ${user.next_run_at || "-"}</span>
-            <button onclick="runUserNow('${user.id}')" ${isRunning ? "disabled" : ""}
+            <button onclick="runUserNow('${user.id}')" ${(isRunning || !workerOnline) ? "disabled" : ""}
+              title="${!workerOnline ? "PC 워커가 꺼져 있어서 지금은 실행할 수 없습니다." : ""}"
               class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
               지금 실행
             </button>
@@ -1149,12 +1170,14 @@ populateTimeSelect(el("editTimeMinute"), 60);
 
 (async () => {
   await refreshAuth();
+  await refreshWorkerStatus();
   refreshHistory();
   refreshUsers();
 })();
 renderTimeChips();
 setInterval(refreshHistory, 3000);
 setInterval(refreshUsers, 3000);
+setInterval(refreshWorkerStatus, 60000);
 </script>
 </body>
 </html>

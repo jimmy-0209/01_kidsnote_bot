@@ -11,6 +11,7 @@ from starlette.requests import Request
 
 import discovery_request_store
 import google_oauth
+import heartbeat_store
 import kakao_oauth
 import run_history_store
 import scheduler
@@ -42,6 +43,12 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     return templates.TemplateResponse(request, "dashboard.html")
+
+
+@app.get("/api/worker-status")
+def get_worker_status():
+    """PC 워커가 켜져 있는지 — 로그인 여부와 무관하게 공개 정보(민감한 내용 없음)."""
+    return JSONResponse(heartbeat_store.get_status())
 
 
 @app.get("/api/status")

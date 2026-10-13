@@ -4,6 +4,7 @@ from datetime import datetime
 from apscheduler.triggers.interval import IntervalTrigger
 
 import discovery_request_store
+import heartbeat_store
 import kidsnote_discovery
 import pipeline
 import run_history_store
@@ -81,6 +82,13 @@ def main():
     scheduler.start()
     scheduler._scheduler.add_job(
         _poll_discovery_requests, IntervalTrigger(seconds=5), id="poll_discovery", replace_existing=True
+    )
+    # 대시보드가 "PC 켜짐/꺼짐" 표시 + "지금 실행" 버튼 활성화 여부를 판단하는 기준.
+    # 하트비트 테이블 레코드 하나를 주기적으로 갱신하기만 하면 되므로 별도 스레드
+    # 없이 APScheduler 인터벌 잡으로 충분하다.
+    heartbeat_store.ping()
+    scheduler._scheduler.add_job(
+        heartbeat_store.ping, IntervalTrigger(seconds=20), id="heartbeat", replace_existing=True
     )
     print("워커 실행 중 — 예약된 시각/수동 실행/계정 인증 요청을 처리합니다. (Ctrl+C로 종료)")
     threading.Event().wait()
