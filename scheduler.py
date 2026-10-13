@@ -1,6 +1,6 @@
 import json
 import queue
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -50,14 +50,21 @@ def load_schedule_config() -> dict:
         return json.load(f)
 
 
+KST = timezone(timedelta(hours=9))
+
+
 def compute_next_run(times: list[str]) -> str | None:
     """APScheduler 라이브 인스턴스를 들여다보지 않고 times(["HH:MM", ...])만으로
     다음 실행 시각을 계산한다 — 이래야 워커의 스케줄러 인스턴스를 갖고 있지 않은
-    웹 프로세스(Phase 5 분리 이후)에서도 "다음 실행" 표시가 가능하다.
+    웹 프로세스(Vercel, UTC)에서도 "다음 실행" 표시가 가능하다.
+
+    naive datetime.now()는 이 함수를 호출하는 프로세스의 서버 로컬 시각을
+    반환하므로(Vercel=UTC, PC=KST), 반드시 KST를 명시해서 어디서 호출되든
+    같은 결과가 나오게 한다.
     """
     if not times:
         return None
-    now = datetime.now()
+    now = datetime.now(KST)
     candidates = []
     for t in times:
         hour, _, minute = t.partition(":")
@@ -65,7 +72,7 @@ def compute_next_run(times: list[str]) -> str | None:
         if candidate <= now:
             candidate += timedelta(days=1)
         candidates.append(candidate)
-    return min(candidates).isoformat(timespec="seconds") + "+09:00"
+    return min(candidates).isoformat(timespec="seconds")
 
 
 def _poll_queued():

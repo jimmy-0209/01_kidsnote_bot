@@ -1,12 +1,17 @@
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import boto3
 from boto3.dynamodb.conditions import Attr, Key
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# request_run()은 웹 프로세스(Vercel, UTC)에서, finalize()는 PC 워커(KST)에서
+# 실행된다 — naive datetime.now()를 쓰면 같은 실행의 시작/종료 시각이 9시간
+# 어긋나 보인다. 어디서 실행되든 항상 한국 시간으로 기록되도록 명시한다.
+KST = timezone(timedelta(hours=9))
 
 HISTORY_TABLE_NAME = os.environ.get("DYNAMODB_RUN_HISTORY_TABLE", "kidsnote_run_history")
 
@@ -31,7 +36,7 @@ def request_run(user_id: str, trigger: str) -> dict:
     if current["status"] in ("queued", "running"):
         return {"error": "이미 대기 중이거나 실행 중입니다."}
 
-    started_at = datetime.now().isoformat(timespec="seconds")
+    started_at = datetime.now(KST).isoformat(timespec="seconds")
     _table.put_item(Item={
         "user_id": user_id,
         "started_at": started_at,
@@ -77,7 +82,7 @@ def finalize(user_id: str, started_at: str, status: str, error: str | None, regi
         ExpressionAttributeNames={"#s": "status", "#e": "error"},
         ExpressionAttributeValues={
             ":status": status,
-            ":finished_at": datetime.now().isoformat(timespec="seconds"),
+            ":finished_at": datetime.now(KST).isoformat(timespec="seconds"),
             ":error": error,
             ":registered": registered,
         },
