@@ -31,25 +31,42 @@ def trigger_job_run(user_id: str) -> dict:
 
 KST = timezone(timedelta(hours=9))
 
+# 시각 항목은 {"time": "HH:MM", "days": "all"|"weekdays"|"weekend"} 형태다.
+# 과거 데이터는 그냥 "HH:MM" 문자열이라(요일 구분 없이 매일) 어디서든 이 함수로
+# 정규화해서 쓴다.
+_CRON_DAY_OF_WEEK = {"all": "*", "weekdays": "mon-fri", "weekend": "sat,sun"}
+_WEEKDAY_SETS = {"all": None, "weekdays": {0, 1, 2, 3, 4}, "weekend": {5, 6}}
 
-def compute_next_run(times: list[str]) -> str | None:
-    """APScheduler 라이브 인스턴스를 들여다보지 않고 times(["HH:MM", ...])만으로
-    다음 실행 시각을 계산한다 — 이래야 워커의 스케줄러 인스턴스를 갖고 있지 않은
+
+def _normalize_time_entry(entry) -> dict:
+    if isinstance(entry, str):
+        return {"time": entry, "days": "all"}
+    return {"time": entry.get("time"), "days": entry.get("days", "all")}
+
+
+def compute_next_run(time_entries: list) -> str | None:
+    """APScheduler 라이브 인스턴스를 들여다보지 않고 time_entries만으로 다음
+    실행 시각을 계산한다 — 이래야 워커의 스케줄러 인스턴스를 갖고 있지 않은
     웹 프로세스(Vercel, UTC)에서도 "다음 실행" 표시가 가능하다.
 
     naive datetime.now()는 이 함수를 호출하는 프로세스의 서버 로컬 시각을
     반환하므로(Vercel=UTC, PC=KST), 반드시 KST를 명시해서 어디서 호출되든
     같은 결과가 나오게 한다.
     """
-    if not times:
+    if not time_entries:
         return None
     now = datetime.now(KST)
     candidates = []
-    for t in times:
-        hour, _, minute = t.partition(":")
+    for raw_entry in time_entries:
+        entry = _normalize_time_entry(raw_entry)
+        hour, _, minute = entry["time"].partition(":")
+        allowed_weekdays = _WEEKDAY_SETS.get(entry["days"])
         candidate = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
         if candidate <= now:
             candidate += timedelta(days=1)
+        if allowed_weekdays is not None:
+            while candidate.weekday() not in allowed_weekdays:
+                candidate += timedelta(days=1)
         candidates.append(candidate)
     return min(candidates).isoformat(timespec="seconds")
 
@@ -79,13 +96,15 @@ def register_user_schedule(user: dict):
     schedule = user.get("schedule", {})
     if not schedule.get("enabled", True):
         return
-    for t in schedule.get("times", []):
-        hour, minute = t.split(":")
+    for i, raw_entry in enumerate(schedule.get("times", [])):
+        entry = _normalize_time_entry(raw_entry)
+        hour, minute = entry["time"].split(":")
+        day_of_week = _CRON_DAY_OF_WEEK.get(entry["days"], "*")
         _scheduler.add_job(
             _scheduled_fire,
-            CronTrigger(hour=int(hour), minute=int(minute)),
+            CronTrigger(hour=int(hour), minute=int(minute), day_of_week=day_of_week),
             args=[user["id"]],
-            id=f"user_{user['id']}_{t}",
+            id=f"user_{user['id']}_{i}",
             replace_existing=True,
         )
 

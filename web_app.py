@@ -73,10 +73,21 @@ def get_history(request: Request, limit: int = 20):
     return JSONResponse(enriched)
 
 
+VALID_SCHEDULE_DAYS = {"all", "weekdays", "weekend"}
+
+
 def _validate_times(times: list) -> str | None:
+    """times의 각 항목은 "HH:MM" 문자열(과거 데이터, 매일로 간주) 또는
+    {"time": "HH:MM", "days": "all"|"weekdays"|"weekend"} 형태다."""
     if not times:
         return "스케줄 시각을 하나 이상 입력하세요."
-    for t in times:
+    for entry in times:
+        if isinstance(entry, str):
+            t, days = entry, "all"
+        else:
+            t, days = entry.get("time"), entry.get("days", "all")
+        if days not in VALID_SCHEDULE_DAYS:
+            return f"잘못된 요일 옵션입니다: {days}"
         hour, _, minute = str(t).partition(":")
         if not (hour.isdigit() and minute.isdigit() and 0 <= int(hour) <= 23 and 0 <= int(minute) <= 59):
             return f"잘못된 시간 형식입니다: {t} (HH:MM 형식이어야 합니다)"

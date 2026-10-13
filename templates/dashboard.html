@@ -218,6 +218,12 @@
             <span class="text-slate-400 font-semibold">:</span>
             <select id="jobTimeMinute"
               class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
+            <select id="jobTimeDays"
+              class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+              <option value="all">매일</option>
+              <option value="weekdays">월~금</option>
+              <option value="weekend">주말</option>
+            </select>
             <button type="button" onclick="addTimeChip()"
               class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
               시각 추가
@@ -366,6 +372,12 @@
           <span class="text-slate-400 font-semibold">:</span>
           <select id="editTimeMinute"
             class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white"></select>
+          <select id="editTimeDays"
+            class="px-3 py-3 rounded-xl border border-slate-200 bg-slate-50 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 focus:bg-white">
+            <option value="all">매일</option>
+            <option value="weekdays">월~금</option>
+            <option value="weekend">주말</option>
+          </select>
           <button type="button" onclick="addEditTimeChip()"
             class="px-4 py-2 rounded-xl bg-brand-50 text-brand-700 text-sm font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95">
             시각 추가
@@ -534,15 +546,33 @@ async function refreshHistory() {
   }).join("");
 }
 
+// 스케줄 시각 항목은 {time: "HH:MM", days: "all"|"weekdays"|"weekend"} 형태.
+// 과거에 저장된 데이터는 그냥 "HH:MM" 문자열이라 어디서든 이 함수로 정규화해서 쓴다.
+const DAY_LABELS = { all: "매일", weekdays: "월~금", weekend: "주말" };
+
+function normalizeTimeEntry(entry) {
+  if (typeof entry === "string") return { time: entry, days: "all" };
+  return { time: entry.time, days: entry.days || "all" };
+}
+
+function timeEntryLabel(entry) {
+  const e = normalizeTimeEntry(entry);
+  return `${e.time} (${DAY_LABELS[e.days] || e.days})`;
+}
+
+function sameTimeEntry(a, b) {
+  return a.time === b.time && a.days === b.days;
+}
+
 let pendingTimes = [];
 
 function renderTimeChips() {
   const container = document.getElementById("jobTimeChips");
   container.innerHTML = "";
-  pendingTimes.forEach((t, i) => {
+  pendingTimes.forEach((entry, i) => {
     const chip = document.createElement("span");
     chip.className = "chip-in inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
-    chip.innerHTML = `${t} <button type="button" onclick="removeTimeChip(${i})"
+    chip.innerHTML = `${escapeHtml(timeEntryLabel(entry))} <button type="button" onclick="removeTimeChip(${i})"
       class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
     container.appendChild(chip);
   });
@@ -556,8 +586,11 @@ function populateTimeSelect(selectEl, max) {
 }
 
 function addTimeChip() {
-  const t = `${document.getElementById("jobTimeHour").value}:${document.getElementById("jobTimeMinute").value}`;
-  if (!pendingTimes.includes(t)) pendingTimes.push(t);
+  const entry = {
+    time: `${document.getElementById("jobTimeHour").value}:${document.getElementById("jobTimeMinute").value}`,
+    days: document.getElementById("jobTimeDays").value,
+  };
+  if (!pendingTimes.some(e => sameTimeEntry(e, entry))) pendingTimes.push(entry);
   renderTimeChips();
 }
 
@@ -980,18 +1013,21 @@ let editChildrenKeywords = []; // children과 같은 순서(index)로 정렬된 
 function renderEditTimeChips() {
   const container = el("editTimeChips");
   container.innerHTML = "";
-  editTimes.forEach((t, i) => {
+  editTimes.forEach((entry, i) => {
     const chip = document.createElement("span");
     chip.className = "chip-in inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 rounded-full pl-3 pr-1.5 py-1 text-sm font-medium";
-    chip.innerHTML = `${t} <button type="button" onclick="removeEditTimeChip(${i})"
+    chip.innerHTML = `${escapeHtml(timeEntryLabel(entry))} <button type="button" onclick="removeEditTimeChip(${i})"
       class="w-5 h-5 flex items-center justify-center rounded-full text-brand-400 hover:bg-brand-100 hover:text-brand-700 transition-colors">×</button>`;
     container.appendChild(chip);
   });
 }
 
 function addEditTimeChip() {
-  const t = `${el("editTimeHour").value}:${el("editTimeMinute").value}`;
-  if (!editTimes.includes(t)) editTimes.push(t);
+  const entry = {
+    time: `${el("editTimeHour").value}:${el("editTimeMinute").value}`,
+    days: el("editTimeDays").value,
+  };
+  if (!editTimes.some(e => sameTimeEntry(e, entry))) editTimes.push(entry);
   renderEditTimeChips();
 }
 
@@ -1067,7 +1103,7 @@ function openEditModal(userId) {
 
   editingUserId = userId;
   el("editUserIdLabel").textContent = user.kidsnote_id;
-  editTimes = [...(user.schedule.times || [])];
+  editTimes = (user.schedule.times || []).map(normalizeTimeEntry);
   editChildrenKeywords = (user.children || []).map(c => [...(c.keywords || [])]);
 
   renderEditTimeChips();
@@ -1154,7 +1190,7 @@ async function refreshUsers() {
               : '<span class="text-xs text-slate-400">📅 구글 캘린더 미연동(레거시 token.json 사용)</span>'}
           </div>
           <div class="flex items-center gap-3">
-            <span class="text-xs text-slate-400">${(user.schedule.times || []).join(", ")} · 다음 실행: ${user.next_run_at || "-"}</span>
+            <span class="text-xs text-slate-400">${(user.schedule.times || []).map(timeEntryLabel).join(", ")} · 다음 실행: ${user.next_run_at || "-"}</span>
             <button onclick="runUserNow('${user.id}')" ${(isRunning || !workerOnline) ? "disabled" : ""}
               title="${!workerOnline ? "PC 워커가 꺼져 있어서 지금은 실행할 수 없습니다." : ""}"
               class="px-3 py-1.5 rounded-lg bg-brand-50 text-brand-700 text-xs font-semibold transition-all duration-150 hover:bg-brand-100 hover:scale-105 active:scale-95 disabled:opacity-40 disabled:pointer-events-none">
