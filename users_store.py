@@ -29,6 +29,11 @@ def _encrypt_for_storage(user: dict) -> dict:
         stored["kidsnote_pw"] = crypto_utils.encrypt(stored["kidsnote_pw"])
     if stored.get("google_credentials"):
         stored["google_credentials"] = crypto_utils.encrypt(json.dumps(stored["google_credentials"]))
+    if not stored.get("kakao_user_id"):
+        # kakao_user_id-index GSI의 파티션 키라서 NULL 타입으로 쓰면 DynamoDB가
+        # ValidationException을 낸다 — 아예 속성 자체를 빼야 "이 인덱스에 없는
+        # 항목"으로 정상 처리된다(sparse index).
+        stored.pop("kakao_user_id", None)
     return stored
 
 

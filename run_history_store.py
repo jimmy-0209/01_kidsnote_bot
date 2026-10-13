@@ -114,3 +114,29 @@ def list_runs(user_id: str, limit: int = 10) -> list[dict]:
         Limit=limit,
     )
     return response.get("Items", [])
+
+
+def _parse_dt(s: str) -> datetime:
+    """과거(타임존 버그 수정 이전)에 저장된 naive 문자열은 KST로 간주하고,
+    새로 저장된 문자열은 이미 타임존 정보를 담고 있으므로 그대로 쓴다.
+    """
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=KST)
+    return dt
+
+
+def has_recent_registration(user_id: str, within_days: int = 28) -> bool:
+    """최근 within_days일 안에 실제로 캘린더에 반영된(등록된) 일정이 하나라도
+    있었는지 확인한다 — 오래 방치된 계정 자동 정리(worker._check_inactive_users)에 쓰인다.
+    """
+    cutoff = datetime.now(KST) - timedelta(days=within_days)
+    for item in list_runs(user_id, limit=200):
+        started_at = item.get("started_at")
+        if not started_at:
+            continue
+        if _parse_dt(started_at) < cutoff:
+            break  # 최신순 정렬이므로 여기부터는 더 오래된 기록 -> 더 볼 필요 없음
+        if item.get("registered"):
+            return True
+    return False

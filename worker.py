@@ -1,5 +1,5 @@
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.triggers.interval import IntervalTrigger
 
@@ -10,6 +10,11 @@ import pipeline
 import run_history_store
 import scheduler
 import users_store
+
+KST = timezone(timedelta(hours=9))
+
+# 4주(28일) 연속 캘린더에 새로 반영된 일정이 없으면 방치된 계정으로 보고 자동 삭제한다.
+INACTIVITY_LIMIT_DAYS = 28
 
 
 def _execute(user_id: str, trigger: str, started_at: str):
@@ -74,6 +79,34 @@ def _poll_discovery_requests():
             discovery_request_store.finalize(request_id, "error", None, result.get("error", "계정 확인에 실패했습니다."))
 
 
+def _parse_dt(s: str) -> datetime:
+    dt = datetime.fromisoformat(s)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=KST)
+    return dt
+
+
+def _check_inactive_users():
+    """가입 후 4주가 지났는데 그 4주 동안 캘린더에 새로 반영된 일정이 한 번도
+    없었던 사용자는 자동으로 삭제한다(스케줄도 함께 사라짐 — register_user_schedule이
+    DynamoDB에 없는 사용자를 더 이상 등록하지 않으므로).
+    """
+    now = datetime.now(KST)
+    for user in users_store.list_users():
+        created_at = user.get("created_at")
+        if not created_at:
+            continue
+        if now - _parse_dt(created_at) < timedelta(days=INACTIVITY_LIMIT_DAYS):
+            continue  # 가입 4주가 안 된 계정은 아직 판단하지 않음
+
+        if run_history_store.has_recent_registration(user["id"], within_days=INACTIVITY_LIMIT_DAYS):
+            continue
+
+        print(f"\n===== (4주 연속 신규 공지 없음 - 자동 삭제: {user['id']}/{user.get('kidsnote_id')}) {now} =====")
+        scheduler.unregister_user_schedule(user["id"])
+        users_store.delete_user(user["id"])
+
+
 def main():
     threading.Thread(target=_run_loop, daemon=True).start()
     scheduler.start()
@@ -86,6 +119,9 @@ def main():
     heartbeat_store.ping()
     scheduler._scheduler.add_job(
         heartbeat_store.ping, IntervalTrigger(seconds=20), id="heartbeat", replace_existing=True
+    )
+    scheduler._scheduler.add_job(
+        _check_inactive_users, IntervalTrigger(hours=24), id="check_inactive_users", replace_existing=True
     )
     print("워커 실행 중 — 예약된 시각/수동 실행/계정 인증 요청을 처리합니다. (Ctrl+C로 종료)")
     threading.Event().wait()
