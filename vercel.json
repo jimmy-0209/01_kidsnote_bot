@@ -11,10 +11,12 @@
           "users_store.py",
           "run_history_store.py",
           "discovery_request_store.py",
+          "heartbeat_store.py",
           "crypto_utils.py",
           "google_oauth.py",
           "kakao_oauth.py",
-          "templates/**"
+          "templates/**",
+          "static/**"
         ]
       }
     }
