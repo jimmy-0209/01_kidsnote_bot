@@ -1156,6 +1156,10 @@ async function refreshUsers() {
             </button>
           </div>
         </div>
+        ${!workerOnline ? `
+        <p class="mt-2 text-xs text-rose-500 bg-rose-50 border border-rose-100 rounded-lg px-3 py-1.5">
+          ⚠️ PC 워커가 꺼져 있어 지금은 "지금 실행"을 사용할 수 없습니다. PC를 켜고 잠시 후 다시 시도해주세요.
+        </p>` : ""}
         <div class="divide-y divide-slate-50 mt-2 border-t border-slate-50">${childrenHtml}</div>
       </div>`;
   }).join("");
