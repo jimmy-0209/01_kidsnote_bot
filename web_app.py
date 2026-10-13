@@ -47,6 +47,11 @@ def dashboard(request: Request):
     return templates.TemplateResponse(request, "dashboard.html")
 
 
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy(request: Request):
+    return templates.TemplateResponse(request, "privacy.html")
+
+
 @app.get("/api/worker-status")
 def get_worker_status():
     """PC 워커가 켜져 있는지 — 로그인 여부와 무관하게 공개 정보(민감한 내용 없음)."""
