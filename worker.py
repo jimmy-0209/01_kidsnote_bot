@@ -20,13 +20,10 @@ def _execute(user_id: str, trigger: str, started_at: str):
     results = []
     error_msg = None
     try:
-        if user_id == scheduler.LEGACY_JOB_ID:
-            results = pipeline.run_all_children() or []
-        else:
-            user = users_store.get_user(user_id)
-            if not user:
-                raise ValueError(f"사용자를 찾을 수 없습니다: {user_id}")
-            results = pipeline.run_children_for_user(user) or []
+        user = users_store.get_user(user_id)
+        if not user:
+            raise ValueError(f"사용자를 찾을 수 없습니다: {user_id}")
+        results = pipeline.run_children_for_user(user) or []
         history_status = "success"
     except Exception as e:
         error_msg = str(e)

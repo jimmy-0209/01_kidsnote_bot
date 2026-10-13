@@ -1,7 +1,5 @@
-import json
 import queue
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -14,14 +12,6 @@ import users_store
 # 않는다 — web_app.py가 이 모듈을 쓰는데, Vercel로 옮겨질 예정이라 그쪽에서 Playwright
 # 바이너리를 번들링하면 배포 크기 제한에 걸린다. 실제 실행 로직(pipeline 호출)은
 # worker.py에만 있고, 여기 있는 _RUN_QUEUE는 worker.py가 직접 꺼내 쓴다.
-BASE_DIR = Path(__file__).resolve().parent
-SCHEDULE_CONFIG_PATH = BASE_DIR / "schedule_config.json"
-
-LEGACY_JOB_ID = "legacy"
-
-# 기존 Windows 작업 스케줄러(KidsnoteBot_MonFri)는 삭제되고 웹 스케줄러가 유일한
-# 자동 실행 경로가 되었으므로, 항상 활성화된 상태를 기본값으로 한다.
-DEFAULT_SCHEDULE = {"enabled": True, "times": ["21:00"]}
 
 # 실행 요청을 순서대로 처리하는 큐 + 워커 스레드 1개 (이 프로세스, 즉 worker.py 안에서만 쓰임).
 # 여러 사용자의 스케줄이 같은 시각에 겹치더라도 Playwright 브라우저가
@@ -35,19 +25,8 @@ def get_job_state(user_id: str) -> dict:
     return run_history_store.get_current_state(user_id)
 
 
-def trigger_manual_run() -> dict:
-    return run_history_store.request_run(LEGACY_JOB_ID, "manual")
-
-
 def trigger_job_run(user_id: str) -> dict:
     return run_history_store.request_run(user_id, "manual")
-
-
-def load_schedule_config() -> dict:
-    if not SCHEDULE_CONFIG_PATH.exists():
-        return dict(DEFAULT_SCHEDULE)
-    with open(SCHEDULE_CONFIG_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 
 KST = timezone(timedelta(hours=9))
@@ -94,23 +73,6 @@ def _scheduled_fire(user_id: str):
         print(f"\n===== (예약 실행 건너뜀: {user_id} 이미 대기/실행 중) {datetime.now()} =====")
 
 
-def _apply_legacy_jobs(config: dict):
-    for existing in _scheduler.get_jobs():
-        if existing.id.startswith("legacy_"):
-            _scheduler.remove_job(existing.id)
-    if not config.get("enabled"):
-        return
-    for t in config.get("times", []):
-        hour, minute = t.split(":")
-        _scheduler.add_job(
-            _scheduled_fire,
-            CronTrigger(hour=int(hour), minute=int(minute)),
-            args=[LEGACY_JOB_ID],
-            id=f"legacy_{t}",
-            replace_existing=True,
-        )
-
-
 def register_user_schedule(user: dict):
     """사용자 한 명의 공유 스케줄 시각들에 맞춰 cron 트리거를 등록한다 (기존 등록은 먼저 제거)."""
     unregister_user_schedule(user["id"])
@@ -135,15 +97,13 @@ def unregister_user_schedule(user_id: str):
 
 
 def _resync_schedules():
-    """DynamoDB/schedule_config.json 기준으로 cron 등록을 주기적으로 다시 맞춘다.
+    """DynamoDB 기준으로 cron 등록을 주기적으로 다시 맞춘다.
 
-    Phase 5로 웹 프로세스와 워커 프로세스가 분리된 뒤로는 사용자 등록/수정/삭제가
-    이 워커가 아닌 다른 프로세스(웹 대시보드, 나중엔 Vercel)에서 일어나므로,
-    웹 쪽이 register_user_schedule을 직접 호출할 수 없다. 대신 이 워커가 주기적으로
-    DB를 다시 읽어 cron 목록을 맞춘다 — 최악의 경우 반영까지 이 주기만큼 지연된다.
+    웹 프로세스(Vercel)와 워커 프로세스가 분리되어 사용자 등록/수정/삭제가
+    이 워커가 아닌 다른 프로세스에서 일어나므로, 웹 쪽이 register_user_schedule을
+    직접 호출할 수 없다. 대신 이 워커가 주기적으로 DB를 다시 읽어 cron 목록을
+    맞춘다 — 최악의 경우 반영까지 이 주기만큼 지연된다.
     """
-    _apply_legacy_jobs(load_schedule_config())
-
     users = users_store.list_users()
     current_ids = {u["id"] for u in users}
     for user in users:

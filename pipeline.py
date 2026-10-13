@@ -10,34 +10,12 @@ from playwright.sync_api import sync_playwright
 from google import genai
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 # .env 파일 로드
 load_dotenv()
 
-# ================= [개인 설정] =================
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-KIDSNOTE_ID = os.getenv("KIDSNOTE_ID")
-KIDSNOTE_PW = os.getenv("KIDSNOTE_PW")
-DEFAULT_CHILD = os.getenv("DEFAULT_CHILD")
-TARGET_SCHOOL = os.getenv("TARGET_SCHOOL")
-TARGET_CLASS = os.getenv("TARGET_CLASS") # 예: "기쁨 2반"
-
-TARGET_SCHOOL_2 = os.getenv("TARGET_SCHOOL_2")
-TARGET_CLASS_2 = os.getenv("TARGET_CLASS_2")
-CHILD_NAME_1 = os.getenv("CHILD_NAME_1") # 첫째 이름 (아이 전환 드롭다운을 열 때 클릭)
-CHILD_NAME_2 = os.getenv("CHILD_NAME_2") # 둘째 이름 (드롭다운에서 선택)
-
-# 관리 대상 아이 목록 (첫째, 둘째 순서로 순차 처리)
-# 첫째는 로그인 시 기본으로 활성화되어 있으므로 기관(예: A기관→B기관) 드롭다운만 전환하면 되고,
-# 둘째는 별도 아이 프로필이므로 이름 드롭다운(CHILD_NAME_1 → CHILD_NAME_2)으로 먼저 전환해야 함
-CHILDREN = [
-    {"default_child": DEFAULT_CHILD, "target_school": TARGET_SCHOOL, "target_class": TARGET_CLASS,
-     "switch_from_name": None, "switch_to_name": None},
-    {"default_child": None, "target_school": TARGET_SCHOOL_2, "target_class": TARGET_CLASS_2,
-     "switch_from_name": CHILD_NAME_1, "switch_to_name": CHILD_NAME_2},
-]
 
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
@@ -52,8 +30,7 @@ INSTITUTION_CONTAINER_SELECTOR = '[data-testid="center-sidebar-menu-select"]'
 
 def _scrape_notices(page, target_keywords, days_back=14):
     """현재 로그인/자녀/기관 전환이 끝난 page에서 target_keywords에 매칭되는
-    최근 공지를 찾아 이미지/텍스트로 추출한다. get_kidsnote_data(레거시 단일 계정)와
-    run_children_for_user(다중 자녀 JSON) 양쪽에서 동일하게 재사용한다.
+    최근 공지를 찾아 이미지/텍스트로 추출한다. run_children_for_user가 호출한다.
     """
     extracted_data = []
 
@@ -161,74 +138,21 @@ def _scrape_notices(page, target_keywords, days_back=14):
     return extracted_data
 
 
-def get_kidsnote_data(kidsnote_id, kidsnote_pw, default_child, target_school, switch_from_name=None, switch_to_name=None, days_back=14):
-    print("▶ 1. 스크래핑 시작...")
-    p = sync_playwright().start()
-    browser = p.chromium.launch(headless=True, args=['--disable-blink-features=AutomationControlled'])
-    context = browser.new_context(viewport={'width': 1200, 'height': 900})
-    page = context.new_page()
-
-    try:
-        page.goto("https://www.kidsnote.com/login/")
-        page.fill("input[name='username']", kidsnote_id)
-        page.fill("input[name='password']", kidsnote_pw)
-        page.click("button[type='submit']")
-        page.wait_for_timeout(5000)
-
-        if switch_to_name:
-            # 둘째 이하 자녀: 이름 드롭다운을 열어 아이 프로필 자체를 전환
-            page.get_by_text(switch_from_name, exact=True).first.click()
-            page.wait_for_timeout(1000)
-            page.get_by_text(switch_to_name, exact=True).first.click()
-            page.wait_for_timeout(2000)
-        elif default_child and page.get_by_text(default_child).count() > 0:
-            # 첫째: 로그인 시 기본 활성화된 프로필의 기관(소속) 드롭다운만 전환
-            page.get_by_text(default_child).first.click()
-            page.wait_for_timeout(1000)
-            page.get_by_text(target_school).last.click()
-            page.wait_for_timeout(3000)
-
-        extracted_data = _scrape_notices(page, DEFAULT_KEYWORDS, days_back)
-        return extracted_data, browser, p
-    except Exception as e:
-        print(f"❌ 스크래핑 오류: {e}")
-        return [], browser, p
-
-def _get_calendar_service(google_credentials: dict | None = None):
-    """구글 캘린더 API 서비스 객체를 만든다.
-
-    google_credentials(다중 사용자 OAuth로 위임받은 토큰 dict)가 주어지면 그걸로
-    인증하고, 없으면 기존 단일 계정용 token.json/credentials.json 방식 그대로
-    동작한다 — 레거시 흐름(run_all_children)과 아직 구글 연동을 하지 않은
-    사용자는 이 분기 덕분에 변경 전과 100% 동일하게 계속 작동한다.
+def _get_calendar_service(google_credentials: dict):
+    """구글 캘린더 API 서비스 객체를 만든다. 다중 사용자 OAuth로 위임받은 토큰
+    dict(google_credentials)로 인증한다 — 등록 시 구글 연동이 필수이므로 항상 존재한다.
     """
-    if google_credentials:
-        creds = Credentials.from_authorized_user_info(google_credentials, SCOPES)
-        if not creds.valid and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        return build('calendar', 'v3', credentials=creds)
-
-    creds = None
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
-
+    creds = Credentials.from_authorized_user_info(google_credentials, SCOPES)
+    if not creds.valid and creds.expired and creds.refresh_token:
+        creds.refresh(Request())
     return build('calendar', 'v3', credentials=creds)
 
 
-def analyze_and_calendar(data_list, target_school, target_class, google_credentials: dict | None = None):
+def analyze_and_calendar(data_list, target_school, target_class, google_credentials: dict):
     print("\n▶ 2. 여러 문서 종합 및 Gemini AI 분석 시작...")
     client = genai.Client(api_key=GEMINI_API_KEY)
 
     service = _get_calendar_service(google_credentials)
-    print(f"  > 📅 캘린더 인증 방식: {'사용자별 구글 연동' if google_credentials else '로컬 token.json(레거시)'}")
 
     # 실행 회차마다 Gemini가 같은 행사를 다른 문구로 요약하면 제목 유사도 매칭이
     # 실패해 중복 등록되므로, 기존 등록 일정을 먼저 조회해 Gemini에게 참고자료로 제공한다
@@ -411,41 +335,6 @@ def analyze_and_calendar(data_list, target_school, target_class, google_credenti
     return registered
 
 
-def run_all_children():
-    """CHILDREN 목록을 순서대로 처리하는 전체 파이프라인.
-
-    기존 main.py의 `if __name__ == "__main__":` 블록 내용을 그대로 옮긴 것으로,
-    CLI(main.py)와 웹 서버(web_app.py) 양쪽에서 동일하게 재사용하기 위해 함수로 분리했다.
-    브라우저/Playwright 정리(finally)도 그대로 포함되어 있어, 웹에서 트리거해도
-    좀비 프로세스 없이 정상 종료된다.
-    """
-    results = []
-    for child in CHILDREN:
-        b, p = None, None
-        print(f"\n===== ▶ [{child['target_school']}] 처리 시작 =====")
-        entry = {"label": child["target_school"], "registered": [], "error": None}
-        try:
-            data_list, b, p = get_kidsnote_data(
-                KIDSNOTE_ID, KIDSNOTE_PW,
-                child["default_child"], child["target_school"],
-                child["switch_from_name"], child["switch_to_name"]
-            )
-            if data_list:
-                entry["registered"] = analyze_and_calendar(data_list, child["target_school"], child["target_class"]) or []
-            else:
-                print(f"\n⚠️ [{child['target_school']}] 조건에 맞는 공지사항이 없습니다.")
-        except Exception as e:
-            print(f"\n❌ [{child['target_school']}] 프로그램 실행 오류: {e}")
-            entry["error"] = str(e)
-        finally:
-            if b: b.close()
-            if p: p.stop()
-        results.append(entry)
-
-    print("\n✅ 모든 작업이 완벽하게 완료되었습니다!")
-    return results
-
-
 def _select_institution(page, child: dict):
     """child의 소속(기관) 드롭다운에서 해당 항목을 선택한다.
 
@@ -480,9 +369,8 @@ def run_children_for_user(user: dict):
 
     children[0]은 로그인 시 기본 활성화된 자녀이므로 이름 전환 없이 바로
     소속(기관) 드롭다운만 전환하면 되고, children[1]부터는 이름 전환 드롭다운을
-    먼저 거친 뒤 소속을 전환해야 한다 — 기존 CHILDREN/get_kidsnote_data의
-    index 기반 분기(첫째 vs 둘째 이상)와 동일한 규칙을 그대로 따른다.
-    한 번의 로그인 세션 안에서 모든 자녀를 순회해 불필요한 재로그인을 피한다.
+    먼저 거쳐야 한다. 한 번의 로그인 세션 안에서 모든 자녀를 순회해 불필요한
+    재로그인을 피한다.
     """
     kidsnote_id = user["kidsnote_id"]
     kidsnote_pw = user["kidsnote_pw"]

@@ -26,11 +26,6 @@ BASE_DIR = Path(__file__).resolve().parent
 # worker.py 프로세스가 전담한다. 이 앱은 DynamoDB를 읽고 쓰는 API/대시보드
 # 역할만 하며, scheduler 모듈의 나머지 함수(get_job_state/trigger_* 등)는
 # 전부 DynamoDB를 직접 보는 순수 함수라 워커가 떠 있지 않아도 안전하게 호출 가능하다.
-#
-# 레거시 단일 계정(.env)의 스케줄은 PC의 schedule_config.json 파일 기반이라
-# Vercel(쓰기가 워커에 반영 안 됨)에서는 편집을 지원하지 않는다 — 조회/수정 API는
-# 두지 않고, 필요하면 PC에서 파일을 직접 고친다. 실행 자체(POST /api/run,
-# GET /api/status)는 DynamoDB 큐 기반이라 Vercel에서도 문제없이 그대로 쓴다.
 app = FastAPI(title="KidsnoteBot 대시보드")
 app.add_middleware(
     SessionMiddleware,
@@ -56,19 +51,6 @@ def privacy(request: Request):
 def get_worker_status():
     """PC 워커가 켜져 있는지 — 로그인 여부와 무관하게 공개 정보(민감한 내용 없음)."""
     return JSONResponse(heartbeat_store.get_status())
-
-
-@app.get("/api/status")
-def get_status():
-    return JSONResponse(scheduler.get_job_state(scheduler.LEGACY_JOB_ID))
-
-
-@app.post("/api/run")
-def trigger_run():
-    result = scheduler.trigger_manual_run()
-    if "error" in result:
-        return JSONResponse(result, status_code=409)
-    return JSONResponse(result)
 
 
 @app.get("/api/history")
