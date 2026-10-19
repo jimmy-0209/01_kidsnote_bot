@@ -22,6 +22,10 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 
+# 운영자 본인의 카카오 고유 id. 로그인 세션의 kakao_user_id가 이 값과 일치할 때만
+# 관리자 메뉴(/api/admin/*)를 노출한다 — 값은 /api/me 응답의 kakao_user_id로 확인한다.
+ADMIN_KAKAO_USER_ID = os.environ.get("ADMIN_KAKAO_USER_ID")
+
 # Phase 5: 스케줄 실행(scheduler.start())은 이 웹 프로세스가 아니라 별도의
 # worker.py 프로세스가 전담한다. 이 앱은 DynamoDB를 읽고 쓰는 API/대시보드
 # 역할만 하며, scheduler 모듈의 나머지 함수(get_job_state/trigger_* 등)는
@@ -101,6 +105,11 @@ def _validate_children(children: list) -> str | None:
         if not (c.get("child_name") and c.get("school") and c.get("class")):
             return "자녀마다 이름/기관(학교)/반을 모두 선택해야 합니다."
     return None
+
+
+def _is_admin(request: Request) -> bool:
+    kakao_user_id = request.session.get("kakao_user_id")
+    return bool(ADMIN_KAKAO_USER_ID) and kakao_user_id == ADMIN_KAKAO_USER_ID
 
 
 def _require_owner(request: Request, user: dict) -> JSONResponse | None:
@@ -335,12 +344,43 @@ def get_me(request: Request):
     return JSONResponse({
         "logged_in": True,
         "nickname": request.session.get("kakao_nickname"),
+        # 본인 세션에 이미 있는 값을 본인에게 그대로 돌려주는 것 — ADMIN_KAKAO_USER_ID를
+        # 설정하려면 이 값을 먼저 확인해야 하므로 노출한다.
+        "kakao_user_id": kakao_user_id,
         "registered": user is not None,
         "user": users_store.public_user(user) if user else None,
         # DynamoDB 마이그레이션 이전부터 있던, 아직 어떤 카카오 계정에도 연결되지 않은
         # 레코드가 있는지 여부만 노출(내용은 노출 안 함) — "기존 계정 연결" 버튼 표시용.
         "unclaimed_legacy_available": unclaimed_count > 0,
+        "is_admin": _is_admin(request),
     })
+
+
+@app.get("/api/admin/users")
+def admin_list_users(request: Request):
+    """운영자 본인(ADMIN_KAKAO_USER_ID) 계정만 전체 가입자 목록을 조회할 수 있다."""
+    if not _is_admin(request):
+        return JSONResponse({"error": "관리자만 접근할 수 있습니다."}, status_code=403)
+
+    result = []
+    for u in users_store.list_users():
+        public = users_store.public_user(u)
+        # 일반 /api/users 응답과 달리, 관리자 화면에서는 어느 카카오 계정이 소유자인지
+        # 식별할 수 있어야 하므로 kakao_user_id를 그대로 포함시킨다.
+        public["kakao_user_id"] = u.get("kakao_user_id")
+        public["state"] = scheduler.get_job_state(u["id"])
+        result.append(public)
+    return JSONResponse(result)
+
+
+@app.delete("/api/admin/users/{user_id}")
+def admin_delete_user(request: Request, user_id: str):
+    if not _is_admin(request):
+        return JSONResponse({"error": "관리자만 접근할 수 있습니다."}, status_code=403)
+
+    if not users_store.delete_user(user_id):
+        return JSONResponse({"error": "해당 사용자를 찾을 수 없습니다."}, status_code=404)
+    return JSONResponse({"status": "deleted"})
 
 
 @app.post("/api/claim-legacy")

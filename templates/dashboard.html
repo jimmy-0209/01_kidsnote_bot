@@ -409,6 +409,27 @@
   </div>
 </div>
 
+<!-- 관리자: 전체 사용자 목록 모달 -->
+<div id="adminModal" class="hidden fixed inset-0 z-50">
+  <div id="adminModalBackdrop" onclick="closeAdminModal()" class="absolute inset-0 bg-slate-900/50"></div>
+
+  <div class="relative min-h-full flex items-center justify-center p-4">
+    <div id="adminModalCard" class="relative bg-white rounded-2xl shadow-2xl max-w-2xl w-full p-6 max-h-[85vh] overflow-y-auto">
+      <button type="button" onclick="closeAdminModal()"
+        class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors">
+        ✕
+      </button>
+
+      <h3 class="text-lg font-bold text-slate-900 pr-8">관리자 - 전체 사용자 목록</h3>
+      <p class="text-sm text-slate-500 mt-1">카카오 로그인으로 가입한 전체 사용자를 조회/삭제할 수 있습니다.</p>
+
+      <div id="adminUsersList" class="mt-5 space-y-3">
+        <p class="py-6 text-center text-slate-400 text-sm">불러오는 중...</p>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const badgeStyles = {
   idle:    { label: "대기중", cls: "bg-slate-400" },
@@ -487,6 +508,11 @@ async function refreshAuth() {
     <div class="flex flex-col items-end gap-1.5">
       <div class="flex items-center gap-3">
         <span class="text-sm text-slate-600">${escapeHtml(me.nickname || "사용자")}님</span>
+        ${me.is_admin ? `
+        <button type="button" onclick="openAdminModal()"
+          class="px-3 py-1.5 rounded-lg bg-slate-900 text-white text-xs font-semibold hover:bg-slate-700 transition-colors">
+          관리자
+        </button>` : ""}
         <button type="button" onclick="kakaoLogout()"
           class="px-3 py-1.5 rounded-lg bg-slate-100 text-slate-600 text-xs font-semibold hover:bg-slate-200 transition-colors">
           로그아웃
@@ -1006,6 +1032,64 @@ async function deleteUser(userId) {
   }
   await fetch(`/api/users/${userId}`, { method: "DELETE" });
   setTimeout(refreshUsers, 150);
+}
+
+// ===== 관리자: 전체 사용자 목록 =====
+async function openAdminModal() {
+  const modal = el("adminModal");
+  modal.classList.remove("hidden");
+  el("adminModalBackdrop").classList.add("modal-backdrop-in");
+  el("adminModalCard").classList.add("modal-card-in");
+  refreshAdminUsers();
+}
+
+function closeAdminModal() {
+  el("adminModal").classList.add("hidden");
+}
+
+async function refreshAdminUsers() {
+  const container = el("adminUsersList");
+  const res = await fetch("/api/admin/users");
+  if (!res.ok) {
+    container.innerHTML = '<p class="py-6 text-center text-rose-500 text-sm">관리자 권한이 없습니다.</p>';
+    return;
+  }
+  const users = await res.json();
+
+  if (!users.length) {
+    container.innerHTML = '<p class="py-6 text-center text-slate-400 text-sm">가입한 사용자가 없습니다.</p>';
+    return;
+  }
+
+  container.innerHTML = users.map(user => {
+    const status = (user.state || {}).status || "idle";
+    const childrenHtml = (user.children || []).map(c =>
+      `<li>${escapeHtml(c.child_name)} · ${escapeHtml(c.school)} / ${escapeHtml(c.class)}</li>`
+    ).join("");
+
+    return `
+      <div class="border border-slate-100 rounded-xl p-4">
+        <div class="flex items-center justify-between flex-wrap gap-2">
+          <div class="flex items-center gap-3">
+            <span class="font-semibold text-slate-700 text-sm">${escapeHtml(user.kidsnote_id)}</span>
+            ${badgeHtml(status)}
+          </div>
+          <button onclick="adminDeleteUser('${user.id}')"
+            class="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 text-xs font-semibold transition-all duration-150 hover:bg-rose-100 hover:scale-105 active:scale-95">
+            삭제
+          </button>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">카카오 id: ${escapeHtml(user.kakao_user_id || "미연동")}</p>
+        <ul class="mt-2 space-y-0.5 text-xs text-slate-500 list-disc list-inside">${childrenHtml}</ul>
+      </div>`;
+  }).join("");
+}
+
+async function adminDeleteUser(userId) {
+  if (!confirm("이 사용자와 등록된 자녀 전체를 삭제할까요?")) return;
+  await fetch(`/api/admin/users/${userId}`, { method: "DELETE" });
+  refreshAdminUsers();
+  refreshUsers();
 }
 
 // ===== 사용자 설정 수정 모달 =====

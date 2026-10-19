@@ -51,7 +51,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `api/index.py`가 `web_app.py`의 `app`을 그대로 import하는 진입점. `vercel.json`이 `@vercel/python` 빌더로 이걸 빌드하며 `includeFiles`로 필요한 루트 `.py` 파일과 `templates/`, `static/`을 명시적으로 포함시킨다.
 - 루트 `requirements.txt`는 **Vercel이 설치하는 것과 동일한 최소 목록**이다(Playwright/PyMuPDF/google-genai 등 워커 전용 무거운 패키지 없음) — `scheduler.py`가 `pipeline.py`를 import하지 않도록 분리해 둔 덕분에 가능하다. 워커 전용 추가 패키지는 `requirements-worker.txt`에 있고, PC는 두 파일을 다 설치한다.
-- Vercel 환경변수는 `web_app.py`가 실제로 쓰는 것만 등록돼 있다: `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`DEFAULT_REGION`, `SESSION_SECRET_KEY`, `KIDSNOTE_PW_ENC_KEY`, `KAKAO_CLIENT_ID`/`SECRET`. `GEMINI_API_KEY`나 키즈노트 계정 정보는 워커(PC)의 `.env`에만 있고 Vercel에는 없다(안 쓰므로).
+- Vercel 환경변수는 `web_app.py`가 실제로 쓰는 것만 등록돼 있다: `GOOGLE_CLIENT_ID`/`SECRET`, `AWS_ACCESS_KEY_ID`/`SECRET_ACCESS_KEY`/`DEFAULT_REGION`, `SESSION_SECRET_KEY`, `KIDSNOTE_PW_ENC_KEY`, `KAKAO_CLIENT_ID`/`SECRET`, `ADMIN_KAKAO_USER_ID`(관리자 메뉴를 노출할 운영자 본인의 카카오 고유 id — `/api/me` 응답의 `kakao_user_id`로 확인). `GEMINI_API_KEY`나 키즈노트 계정 정보는 워커(PC)의 `.env`에만 있고 Vercel에는 없다(안 쓰므로).
 
 ## 참고
 
