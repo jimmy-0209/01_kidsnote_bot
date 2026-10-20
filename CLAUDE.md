@@ -36,11 +36,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `kidsnote_run_history` (`run_history_store.py`): 실행 이력이자 **작업 큐**이다. `request_run(user_id, trigger)`가 "queued" 레코드를 하나 만들면, 워커가 주기적으로 `list_queued()`로 찾아 `mark_running` → 실행 → `finalize`로 같은 레코드를 갱신한다. 웹 프로세스(Vercel)와 워커 프로세스가 직접 통신하지 못하므로, 이 테이블 레코드 하나가 "지금 상태 표시"와 "실행 큐" 역할을 동시에 한다. TTL(`expires_at`, 30일)로 자동 삭제되므로 별도 로그 파일이 필요 없다. 타임스탬프는 반드시 KST(`timezone(timedelta(hours=9))`)로 명시한다 — naive `datetime.now()`를 쓰면 Vercel(UTC)과 PC(KST)에서 실행되는 함수끼리 9시간 어긋난다.
 - `kidsnote_discovery_requests` (`discovery_request_store.py`): 회원가입 1단계(계정 인증, `kidsnote_discovery.py`)도 Playwright가 필요해 Vercel에서 못 돌리므로 같은 "대기 레코드" 패턴으로 워커에 위임한다. 웹이 `create_request`로 레코드를 만들고 프론트가 `/api/verify-kidsnote/{request_id}`를 폴링, 워커가 처리 후 결과를 써 넣는다. TTL 30분.
 - `kidsnote_worker_heartbeat` (`heartbeat_store.py`): 워커가 20초마다 `ping()`으로 살아있음을 기록하고, 대시보드가 90초 이내면 "켜짐"으로 판단한다. 타임스탬프도 KST 명시(위와 같은 이유).
+- `kidsnote_google_oauth_pending` (`google_oauth.py`): 구글 로그인(authorization code + PKCE)의 `state` → `code_verifier`/교환된 credentials를 담아 두는 대기 레코드. 서버리스 인스턴스가 요청마다 바뀔 수 있어, 메모리에 들고 있으면 "로그인 시작"과 "콜백"이 서로 다른 인스턴스에 걸렸을 때 state를 못 찾아 `(state 불일치)` 오류가 난다 — 그래서 다른 테이블들과 같은 패턴으로 DynamoDB에 영속화했다. credentials는 `crypto_utils.py`로 암호화해 저장. TTL 15분.
 
 ### 웹 대시보드 (`web_app.py`, Vercel 배포)
 
 - 카카오 로그인(`kakao_oauth.py`, `/api/auth/kakao/*`): Authorization Code 플로우. `state`는 세션 쿠키(Starlette `SessionMiddleware`, `SESSION_SECRET_KEY`)에 저장. 콜백에서 받은 카카오 고유 id를 세션에 저장하고 `users_store.get_user_by_kakao_id`로 본인 계정을 찾는다.
-- 구글 캘린더 연동(`google_oauth.py`, `/api/auth/google/*`): authorization code + PKCE. `state` → 교환된 credentials dict는 서버 메모리(`_PENDING`, `_FLOWS`)에 짧게 보관되며, 등록 시 꺼내 DynamoDB에 영구 저장된다.
+- 구글 캘린더 연동(`google_oauth.py`, `/api/auth/google/*`): authorization code + PKCE. `state` → `code_verifier`/교환된 credentials는 `kidsnote_google_oauth_pending`(DynamoDB)에 짧게 보관되며, 등록 시 꺼내 `kidsnote_users`에 영구 저장된다.
 - 사용자 CRUD(`/api/users`)는 로그인한 카카오 계정 본인 것만 조회/수정/삭제 가능(`_require_owner`). cron 등록/해제는 더 이상 이 프로세스가 직접 하지 않고 — 워커가 60초마다 DynamoDB를 다시 읽어 스스로 맞춘다(`scheduler._resync_schedules`). 그래서 `register_user_schedule` 등을 호출할 필요가 없다.
 - `/api/verify-kidsnote`(POST)는 `discovery_request_store`에 요청만 남기고 즉시 반환, `/api/verify-kidsnote/{request_id}`(GET)로 프론트가 폴링한다.
 - `/api/worker-status`: PC 워커 하트비트 조회(로그인 불필요, 민감정보 없음). 대시보드 헤더에 켜짐/꺼짐 표시 + "지금 실행" 버튼 활성화 여부에 쓰인다.
